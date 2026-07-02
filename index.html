@@ -386,7 +386,7 @@ function renderKlan(){
   return `<div class="sh"><span class="sh-title">${esc(currentKlanName)}</span></div>
     <div class="card">
       <div class="card-sub" style="margin-bottom:8px">Inloggad som <strong>${esc(userEmail)}</strong></div>
-      <div class="btn-row">${switchBtn}<button class="btn btn-g btn-sm" onclick="logout()">Logga ut</button></div>
+      <div class="btn-row">${switchBtn}<button class="btn btn-g btn-sm" onclick="newKlanModal()">+ Ny klan</button><button class="btn btn-g btn-sm" onclick="logout()">Logga ut</button></div>
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:8px">Medlemmar (${state.klanMembers.length})</div>
@@ -418,6 +418,34 @@ async function removeMember(id){
   if(!confirm('Ta bort medlemmen från klanen?')) return
   await sb.from('klan_members').delete().eq('id',id)
   await init()
+}
+
+function newKlanModal(){
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Skapa ny klan</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Du blir automatiskt medlem och kan sedan bjuda in andra. Familjer och perioder är separata per klan.</p>
+    <div class="fg"><label>Klanens namn</label><input id="new-klan-name" placeholder="t.ex. Fjällresan" autofocus/></div>
+    <div class="gate-status" id="new-klan-status"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="createKlanFromApp()">Skapa</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+async function createKlanFromApp(){
+  const name = document.getElementById('new-klan-name').value.trim()
+  const statusEl = document.getElementById('new-klan-status')
+  if(!name){ statusEl.textContent='Ange ett namn.'; return }
+  statusEl.textContent='Skapar…'
+  const { data, error } = await sb.rpc('create_klan', { klan_name: name })
+  if(error){ statusEl.textContent='Fel: '+error.message; return }
+  closeModal()
+  currentKlanId = data
+  localStorage.setItem('kvitton_klan', data)
+  localStorage.removeItem('kvitton_period')
+  await loadKlaner()
 }
 
 // ── RECEIPTS ──────────────────────────────────────────────────────────────────
