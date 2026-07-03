@@ -188,6 +188,8 @@ let currentKlanName = ''
 
 // ── KLAN GATE (lösenordsbaserad) ────────────────────────────────────────────
 function boot(){
+  const params = new URLSearchParams(window.location.search)
+  if(params.has('admin')){ renderAdminLogin(); return }
   const savedId = localStorage.getItem('kvitton_klan_id')
   const savedName = localStorage.getItem('kvitton_klan_name')
   if(savedId && savedName){
@@ -216,9 +218,6 @@ function renderGateLogin(){
     <div class="fg"><label>Lösenord</label><input id="gate-password" type="password"/></div>
     <button class="btn btn-p" style="width:100%" onclick="tryLoginKlan()">Logga in</button>
     <div class="gate-status" id="gate-status"></div>
-    <div style="text-align:center;margin-top:14px">
-      <a href="javascript:void(0)" onclick="renderGateCreate()" style="font-size:13px;color:var(--accent)">Skapa ny klan istället</a>
-    </div>
   </div></div>`)
 }
 
@@ -238,35 +237,6 @@ async function tryLoginKlan(){
   enterApp()
 }
 
-function renderGateCreate(){
-  gate(`<div class="gate"><div class="gate-box">
-    <h2>Skapa ny klan</h2>
-    <p>Välj ett namn och ett lösenord. Dela lösenordet med de du vill ha med.</p>
-    <div class="fg"><label>Klanens namn</label><input id="create-name" placeholder="t.ex. Sommarhuset" autofocus/></div>
-    <div class="fg"><label>Lösenord</label><input id="create-password" type="password"/></div>
-    <button class="btn btn-p" style="width:100%" onclick="createKlanGate()">Skapa</button>
-    <div class="gate-status" id="create-status"></div>
-    <div style="text-align:center;margin-top:14px">
-      <a href="javascript:void(0)" onclick="renderGateLogin()" style="font-size:13px;color:var(--accent)">Logga in i befintlig klan istället</a>
-    </div>
-  </div></div>`)
-}
-
-async function createKlanGate(){
-  const name = document.getElementById('create-name').value.trim()
-  const password = document.getElementById('create-password').value
-  const statusEl = document.getElementById('create-status')
-  if(!name || !password){ statusEl.textContent='Fyll i både namn och lösenord.'; return }
-  statusEl.textContent='Skapar…'
-  const { data, error } = await sb.rpc('create_klan', { klan_name: name, klan_password: password })
-  if(error){ statusEl.textContent='Fel: '+error.message; return }
-  currentKlanId = data
-  currentKlanName = name
-  localStorage.setItem('kvitton_klan_id', currentKlanId)
-  localStorage.setItem('kvitton_klan_name', currentKlanName)
-  enterApp()
-}
-
 function switchKlan(){
   localStorage.removeItem('kvitton_klan_id')
   localStorage.removeItem('kvitton_klan_name')
@@ -280,6 +250,88 @@ async function enterApp(){
   document.getElementById('mainApp').style.display=''
   document.getElementById('klanPill').textContent = '👥 '+currentKlanName
   await init()
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────────────────────
+function renderAdminLogin(){
+  gate(`<div class="gate"><div class="gate-box">
+    <h2>Admin</h2>
+    <div class="fg"><label>Admin-lösenord</label><input id="admin-password" type="password" autofocus/></div>
+    <button class="btn btn-p" style="width:100%" onclick="tryAdminLogin()">Logga in</button>
+    <div class="gate-status" id="admin-login-status"></div>
+  </div></div>`)
+}
+
+async function tryAdminLogin(){
+  const pw = document.getElementById('admin-password').value
+  const statusEl = document.getElementById('admin-login-status')
+  if(pw !== ADMIN_PASSWORD){ statusEl.textContent='Fel lösenord.'; return }
+  await renderAdminPanel()
+}
+
+async function renderAdminPanel(){
+  gate('<div class="gate"><div class="gate-box" style="max-width:520px"><div class="loading">Laddar…</div></div></div>')
+  const { data, error } = await sb.from('klaner').select('*').order('created_at',{ascending:false})
+  if(error){ gate(`<div class="gate"><div class="gate-box"><h2>Fel</h2><p>${esc(error.message)}</p></div></div>`); return }
+  const rows = (data||[]).map(k=>`
+    <div class="card" style="text-align:left">
+      <div class="card-hdr">
+        <div>
+          <div class="card-title">${esc(k.name)}</div>
+          <div class="card-sub">Lösenord: <code>${esc(k.password||'')}</code></div>
+          <div class="card-sub">Skapad: ${new Date(k.created_at).toLocaleDateString('sv-SE')}</div>
+        </div>
+        <div class="btn-row" style="flex-direction:column;align-items:flex-end">
+          <button class="btn btn-g btn-sm" onclick="adminEditKlan('${k.id}','${esc(k.name).replace(/'/g,"\\'")}','${esc(k.password||'').replace(/'/g,"\\'")}')">Redigera</button>
+          <button class="btn btn-d btn-sm" onclick="adminDeleteKlan('${k.id}','${esc(k.name).replace(/'/g,"\\'")}')">Ta bort</button>
+        </div>
+      </div>
+    </div>`).join('')
+  gate(`<div class="gate" style="align-items:flex-start;padding-top:40px"><div class="gate-box" style="max-width:520px">
+    <h2>Admin – alla klaner (${(data||[]).length})</h2>
+    <p>Bara du ser den här sidan.</p>
+    ${rows || '<p class="empty">Inga klaner ännu.</p>'}
+    <button class="btn btn-g" style="width:100%;margin-top:10px" onclick="location.href=location.pathname">Stäng admin</button>
+  </div></div>`)
+}
+
+function adminEditKlan(id, name, password){
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Redigera klan</div>
+    <div class="fg"><label>Namn</label><input id="admin-edit-name" value="${esc(name)}"/></div>
+    <div class="fg"><label>Lösenord</label><input id="admin-edit-password" value="${esc(password)}"/></div>
+    <div class="gate-status" id="admin-edit-status"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="adminSaveKlan('${id}')">Spara</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+async function adminSaveKlan(id){
+  const name = document.getElementById('admin-edit-name').value.trim()
+  const password = document.getElementById('admin-edit-password').value
+  const statusEl = document.getElementById('admin-edit-status')
+  if(!name || !password){ statusEl.textContent='Fyll i både namn och lösenord.'; return }
+  const { error } = await sb.from('klaner').update({name,password}).eq('id',id)
+  if(error){ statusEl.textContent='Fel: '+error.message; return }
+  closeModal()
+  await renderAdminPanel()
+}
+
+async function adminDeleteKlan(id, name){
+  if(!confirm(`Ta bort klanen "${name}" och ALL dess data (familjer, perioder, kvitton)? Går inte att ångra.`)) return
+  const { data: periods } = await sb.from('periods').select('id').eq('klan_id',id)
+  const periodIds = (periods||[]).map(p=>p.id)
+  if(periodIds.length){
+    await sb.from('receipts').delete().in('period_id',periodIds)
+    await sb.from('period_families').delete().in('period_id',periodIds)
+    await sb.from('periods').delete().in('id',periodIds)
+  }
+  await sb.from('families').delete().eq('klan_id',id)
+  await sb.from('klaner').delete().eq('id',id)
+  await renderAdminPanel()
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
