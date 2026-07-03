@@ -1,4 +1,4 @@
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
 
 let state = { families:[], periods:[], receipts:[], periodFamilies:[], selectedPeriodId:null }
 let receiptFilter = null // family_id or null = all
