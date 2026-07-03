@@ -304,10 +304,12 @@ function renderReceipts(){
 
   const lockedBanner = locked ? `<div class="hint" style="background:var(--danger-light);color:var(--danger)">🔒 Perioden är avräknad. Lås upp den under fliken Perioder för att lägga till fler kvitton.</div>` : ''
 
-  // Filter chips
+  // Filter chips – bara familjer kopplade till den här perioden
+  const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId).map(pf=>pf.family_id))
+  const chipFamilies = state.families.filter(f=>periodFamIds.has(f.id))
   const chips = `<div class="filter-chips">
     <span class="chip ${!receiptFilter?'on':''}" onclick="setReceiptFilter(null)">Alla</span>
-    ${state.families.map(f=>`<span class="chip ${receiptFilter===f.id?'on':''}" onclick="setReceiptFilter('${f.id}')">${esc(f.name)}</span>`).join('')}
+    ${chipFamilies.map(f=>`<span class="chip ${receiptFilter===f.id?'on':''}" onclick="setReceiptFilter('${f.id}')">${esc(f.name)}</span>`).join('')}
   </div>`
 
   // Filtered sum if active
