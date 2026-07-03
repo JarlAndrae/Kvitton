@@ -545,7 +545,8 @@ function editReceipt(id){
   const r = state.receipts.find(r=>r.id===id)
   if(!r) return
   const isWine = r.alcohol_amount > 0
-  const famOpts = state.families.map(f=>`<option value="${f.id}" ${f.id===r.paid_by_family_id?'selected':''}>${esc(f.name)}</option>`).join('')
+  const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===r.period_id).map(pf=>pf.family_id))
+  const famOpts = state.families.filter(f=>periodFamIds.has(f.id) || f.id===r.paid_by_family_id).map(f=>`<option value="${f.id}" ${f.id===r.paid_by_family_id?'selected':''}>${esc(f.name)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Redigera kvitto</div>
@@ -1187,7 +1188,9 @@ let bulkRows = []
 let bulkNextId = 1
 
 function renderBulk(el){
-  const famOpts = '<option value="">– välj familj –</option>' + state.families.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')
+  const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId).map(pf=>pf.family_id))
+  const bulkFamilies = state.families.filter(f=>periodFamIds.has(f.id))
+  const famOpts = '<option value="">– välj familj –</option>' + bulkFamilies.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')
   const activePeriods = state.periods.filter(p=>!isLocked(p))
   const periodOpts = '<option value="">– välj period –</option>' + activePeriods.map(p=>`<option value="${p.id}" ${p.id===state.selectedPeriodId?'selected':''}>${esc(p.name)}</option>`).join('')
 
@@ -1202,6 +1205,9 @@ function renderBulk(el){
     el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Alla perioder är avräknade. Lås upp en period under fliken Perioder för att registrera fler kvitton.</p>`
     return
   }
+
+  const noFamiliesMsg = state.selectedPeriodId && !bulkFamilies.length
+    ? `<p class="empty" style="margin-bottom:12px">Inga familjer är kopplade till den här perioden än. Lägg till dem under fliken Perioder.</p>` : ''
 
   const rows = bulkRows.map(r => `
     <div class="bulk-row" id="brow-${r.id}">
@@ -1226,6 +1232,7 @@ function renderBulk(el){
         <select id="bulk-family">${famOpts}</select>
       </div>
     </div>
+    ${noFamiliesMsg}
     <div id="bulk-rows">${rows}</div>
     <div class="btn-row" style="margin-top:4px">
       <button class="btn btn-g" onclick="addBulkRow()">+ Lägg till rad</button>
@@ -1237,6 +1244,7 @@ function renderBulk(el){
 function setBulkPeriod(val){
   state.selectedPeriodId = val
   document.getElementById('periodSel').value = val
+  renderActive()
 }
 
 function addBulkRow(){
