@@ -153,6 +153,7 @@ input:focus,select:focus{border-color:var(--accent)}
       <select class="period-sel" id="periodSel" onchange="onPeriodChange(this.value)">
         <option value="">– välj period –</option>
       </select>
+      <button class="klan-pill" id="createPeriodBtn" style="display:none" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">+ Skapa period</button>
     </div>
   </header>
   <nav class="tabs">
@@ -363,8 +364,15 @@ function showLoading(){ const el=document.getElementById('tab-'+activeTab); if(e
 
 function renderPeriodSelect(){
   const sel = document.getElementById('periodSel')
+  const createBtn = document.getElementById('createPeriodBtn')
+  if(!state.periods.length){
+    sel.style.display='none'
+    createBtn.style.display=''
+    return
+  }
+  sel.style.display=''
+  createBtn.style.display='none'
   sel.innerHTML = state.periods.map(p=>`<option value="${p.id}" ${p.id===state.selectedPeriodId?'selected':''}>${p.status==='avräknad'?'🔒 ':''}${esc(p.name)}</option>`).join('')
-  if(!state.periods.length) sel.innerHTML='<option value="">Skapa en period →</option>'
 }
 
 function onPeriodChange(id){ state.selectedPeriodId=id; localStorage.setItem('kvitton_period',id); renderActive() }
@@ -454,7 +462,11 @@ function setReceiptFilter(famId){
 }
 
 function renderReceipts(){
-  if(!state.selectedPeriodId) return '<p class="empty">Skapa och välj en period under fliken Perioder.</p>'
+  if(!state.periods.length){
+    return `<p class="empty">Skapa en period innan du kan registrera kvitton.</p>
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">📅 Skapa period</button></div>`
+  }
+  if(!state.selectedPeriodId) return '<p class="empty">Välj en period ovan.</p>'
   const period = currentPeriod()
   const locked = isLocked(period)
   const allReceipts = periodReceipts()
@@ -506,12 +518,12 @@ function renderReceipts(){
   }).join('')
 
   const emptyMsg = allReceipts.length===0
-    ? '<p class="empty">Inga kvitton ännu. Tryck + Kvitto för att lägga till.</p>'
+    ? '<p class="empty">Inga kvitton ännu. Tryck på Registrera kvitton nedan.</p>'
     : filtered.length===0 ? `<p class="empty">Inga kvitton för ${esc(filtFam?.name||'')}.</p>` : ''
 
   const addBtn = locked
-    ? `<button class="btn btn-g" disabled title="Perioden är avräknad">🔒 + Kvitto</button>`
-    : `<button class="btn btn-p" onclick="newReceipt()">+ Kvitto</button>`
+    ? `<button class="btn btn-g" disabled title="Perioden är avräknad">🔒 Registrera</button>`
+    : `<button class="btn btn-p" onclick="showTab('bulk', document.querySelectorAll('.tab')[1])">➕ Registrera kvitton</button>`
 
   return `<div class="sh"><span class="sh-title">${esc((period||{}).name||'')}</span>
     ${addBtn}</div>
@@ -527,52 +539,6 @@ function setReceiptType(type){
   if(desc.value==='' || desc.value==='Matkvitto' || desc.value==='Vinkvitto'){
     desc.value = isWine ? 'Vinkvitto' : 'Matkvitto'
   }
-}
-
-function newReceipt(){
-  if(isLocked(currentPeriod())){ alert('Perioden är avräknad. Lås upp den för att lägga till fler kvitton.'); return }
-  const famOpts = state.families.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Nytt kvitto</div>
-    <div class="fg">
-      <label>Typ</label>
-      <div style="display:flex;gap:8px;margin-top:4px">
-        <button type="button" id="r-type-mat" class="type-btn type-active" onclick="setReceiptType('mat')">🥗 Matkvitto</button>
-        <button type="button" id="r-type-vin" class="type-btn" onclick="setReceiptType('wine')">🍷 Vinkvitto</button>
-      </div>
-      <input type="hidden" id="r-type-val" value="mat"/>
-    </div>
-    <div class="fg"><label>Beskrivning</label><input id="r-desc" value="Matkvitto"/></div>
-    <div class="fr">
-      <div class="fg"><label>Datum</label><input type="date" id="r-date" value="${today()}"/></div>
-      <div class="fg"><label>Betalat av</label><select id="r-paid"><option value="">-- valj --</option>${famOpts}</select></div>
-    </div>
-    <div class="fg"><label>Belopp (kr)</label><input type="number" id="r-total" min="0" step="1" placeholder="0"/></div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="saveReceipt()">Spara kvitto</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-async function saveReceipt(){
-  const desc = document.getElementById('r-desc').value.trim()
-  const total = parseFloat(document.getElementById('r-total').value)||0
-  if(!desc||!total||!state.selectedPeriodId){ alert('Fyll i beskrivning och belopp.'); return }
-  const isWine = document.getElementById('r-type-val').value === 'wine'
-  const wine = isWine ? total : 0
-  const paidBy = document.getElementById('r-paid').value
-  await sb.from('receipts').insert({
-    period_id:state.selectedPeriodId,
-    description:desc,
-    date:document.getElementById('r-date').value,
-    total_amount:total,
-    alcohol_amount:wine,
-    paid_by_family_id:paidBy||null,
-    image_url:null
-  })
-  closeModal(); await init()
 }
 
 function editReceipt(id){
@@ -1227,8 +1193,13 @@ function renderBulk(el){
 
   if(!bulkRows.length) addBulkRow()
 
+  if(!state.periods.length){
+    el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Skapa en period innan du kan registrera kvitton.</p>
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">📅 Skapa period</button></div>`
+    return
+  }
   if(!activePeriods.length){
-    el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Inga aktiva perioder att registrera kvitton i. Lås upp en period under fliken Perioder.</p>`
+    el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Alla perioder är avräknade. Lås upp en period under fliken Perioder för att registrera fler kvitton.</p>`
     return
   }
 
