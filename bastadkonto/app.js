@@ -1,26 +1,19 @@
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
-let state = { families:[], periods:[], receipts:[], periodFamilies:[], platser:[], selectedPeriodId:null }
-let receiptFilter = null // family_id or null = all
-let activeTab = 'receipts'
-let hideTemporaryFamilies = false
+let state = { people:[], entries:[] }
+let activeTab = 'entries'
+let entryYear = new Date().getFullYear()
+let entryPersonFilter = null
+let entryCategoryFilter = null
+let reportYear = new Date().getFullYear()
+let selectedPhotoFile = null
 
-let currentKlanId = null
-let currentKlanName = ''
+const DEFAULT_CATEGORIES = ['Reparation','Trädgård','El & Vatten','Städning','Inventarier/Möbler','Försäkring','Övrigt']
 
-// ── KLAN GATE (lösenordsbaserad) ────────────────────────────────────────────
+// ── GATE ──────────────────────────────────────────────────────────────────────
 function boot(){
-  const params = new URLSearchParams(window.location.search)
-  if(params.has('admin')){ renderAdminLogin(); return }
-  const savedId = localStorage.getItem('kvitton_klan_id')
-  const savedName = localStorage.getItem('kvitton_klan_name')
-  if(savedId && savedName){
-    currentKlanId = savedId
-    currentKlanName = savedName
-    enterApp()
-  } else {
-    renderGateLogin()
-  }
+  const authed = localStorage.getItem('bastadkonto_authed')
+  if(authed === 'yes'){ enterApp() } else { renderGateLogin() }
 }
 
 function gate(html){
@@ -29,177 +22,50 @@ function gate(html){
   g.style.display='block'
   g.innerHTML = html
 }
-
 function hideGate(){ document.getElementById('authGate').style.display='none'; document.getElementById('authGate').innerHTML='' }
 
 function renderGateLogin(){
   gate(`<div class="gate"><div class="gate-box">
-    <h2>Kvittodelning</h2>
-    <p>Ange klanens namn och lösenord för att komma in.</p>
-    <div class="fg"><label>Klanens namn</label><input id="gate-name" placeholder="t.ex. Sommarhuset"/></div>
-    <div class="fg"><label>Lösenord</label><input id="gate-password" type="password"/></div>
-    <button class="btn btn-p" style="width:100%" onclick="tryLoginKlan()">Logga in</button>
+    <h2>Båstadkonto</h2>
+    <p>Ange lösenordet för att komma in.</p>
+    <div class="fg"><label>Lösenord</label><input id="gate-password" type="password" autofocus/></div>
+    <button class="btn btn-p" style="width:100%" onclick="tryLogin()">Logga in</button>
     <div class="gate-status" id="gate-status"></div>
   </div></div>`)
 }
 
-async function tryLoginKlan(){
-  const name = document.getElementById('gate-name').value.trim()
-  const password = document.getElementById('gate-password').value
+function tryLogin(){
+  const pw = document.getElementById('gate-password').value
   const statusEl = document.getElementById('gate-status')
-  if(!name || !password){ statusEl.textContent='Fyll i både namn och lösenord.'; return }
-  statusEl.textContent='Loggar in…'
-  const { data, error } = await sb.rpc('login_klan', { p_name: name, p_password: password })
-  if(error){ statusEl.textContent='Fel: '+error.message; return }
-  if(!data || !data.length){ statusEl.textContent='Fel namn eller lösenord.'; return }
-  currentKlanId = data[0].id
-  currentKlanName = data[0].name
-  localStorage.setItem('kvitton_klan_id', currentKlanId)
-  localStorage.setItem('kvitton_klan_name', currentKlanName)
+  if(pw !== HOUSE_PASSWORD){ statusEl.textContent='Fel lösenord.'; return }
+  localStorage.setItem('bastadkonto_authed','yes')
   enterApp()
 }
 
-function switchKlan(){
-  localStorage.removeItem('kvitton_klan_id')
-  localStorage.removeItem('kvitton_klan_name')
-  localStorage.removeItem('kvitton_period')
-  currentKlanId = null
+function logout(){
+  localStorage.removeItem('bastadkonto_authed')
   renderGateLogin()
 }
 
 async function enterApp(){
   hideGate()
   document.getElementById('mainApp').style.display=''
-  document.getElementById('klanPill').textContent = '👥 '+currentKlanName
   await init()
 }
 
-// ── ADMIN ─────────────────────────────────────────────────────────────────────
-function renderAdminLogin(){
-  gate(`<div class="gate"><div class="gate-box">
-    <h2>Admin</h2>
-    <div class="fg"><label>Admin-lösenord</label><input id="admin-password" type="password" autofocus/></div>
-    <button class="btn btn-p" style="width:100%" onclick="tryAdminLogin()">Logga in</button>
-    <div class="gate-status" id="admin-login-status"></div>
-  </div></div>`)
-}
-
-async function tryAdminLogin(){
-  const pw = document.getElementById('admin-password').value
-  const statusEl = document.getElementById('admin-login-status')
-  if(pw !== ADMIN_PASSWORD){ statusEl.textContent='Fel lösenord.'; return }
-  await renderAdminPanel()
-}
-
-async function renderAdminPanel(){
-  gate('<div class="gate"><div class="gate-box" style="max-width:520px"><div class="loading">Laddar…</div></div></div>')
-  const { data, error } = await sb.from('klaner').select('*').order('created_at',{ascending:false})
-  if(error){ gate(`<div class="gate"><div class="gate-box"><h2>Fel</h2><p>${esc(error.message)}</p></div></div>`); return }
-  const rows = (data||[]).map(k=>`
-    <div class="card" style="text-align:left">
-      <div class="card-hdr">
-        <div>
-          <div class="card-title">${esc(k.name)}</div>
-          <div class="card-sub">Lösenord: <code>${esc(k.password||'')}</code></div>
-          <div class="card-sub">Skapad: ${new Date(k.created_at).toLocaleDateString('sv-SE')}</div>
-        </div>
-        <div class="btn-row" style="flex-direction:column;align-items:flex-end">
-          <button class="btn btn-g btn-sm" onclick="adminEditKlan('${k.id}','${esc(k.name).replace(/'/g,"\\'")}','${esc(k.password||'').replace(/'/g,"\\'")}')">Redigera</button>
-          <button class="btn btn-d btn-sm" onclick="adminDeleteKlan('${k.id}','${esc(k.name).replace(/'/g,"\\'")}')">Ta bort</button>
-        </div>
-      </div>
-    </div>`).join('')
-  gate(`<div class="gate" style="align-items:flex-start;padding-top:40px"><div class="gate-box" style="max-width:520px">
-    <h2>Admin – alla klaner (${(data||[]).length})</h2>
-    <p>Bara du ser den här sidan.</p>
-    ${rows || '<p class="empty">Inga klaner ännu.</p>'}
-    <button class="btn btn-g" style="width:100%;margin-top:10px" onclick="location.href=location.pathname">Stäng admin</button>
-  </div></div>`)
-}
-
-function adminEditKlan(id, name, password){
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Redigera klan</div>
-    <div class="fg"><label>Namn</label><input id="admin-edit-name" value="${esc(name)}"/></div>
-    <div class="fg"><label>Lösenord</label><input id="admin-edit-password" value="${esc(password)}"/></div>
-    <div class="gate-status" id="admin-edit-status"></div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="adminSaveKlan('${id}')">Spara</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-async function adminSaveKlan(id){
-  const name = document.getElementById('admin-edit-name').value.trim()
-  const password = document.getElementById('admin-edit-password').value
-  const statusEl = document.getElementById('admin-edit-status')
-  if(!name || !password){ statusEl.textContent='Fyll i både namn och lösenord.'; return }
-  const { error } = await sb.from('klaner').update({name,password}).eq('id',id)
-  if(error){ statusEl.textContent='Fel: '+error.message; return }
-  closeModal()
-  await renderAdminPanel()
-}
-
-async function adminDeleteKlan(id, name){
-  if(!confirm(`Ta bort klanen "${name}" och ALL dess data (familjer, perioder, kvitton)? Går inte att ångra.`)) return
-  const { data: periods } = await sb.from('periods').select('id').eq('klan_id',id)
-  const periodIds = (periods||[]).map(p=>p.id)
-  if(periodIds.length){
-    await sb.from('receipts').delete().in('period_id',periodIds)
-    await sb.from('period_families').delete().in('period_id',periodIds)
-    await sb.from('periods').delete().in('id',periodIds)
-  }
-  await sb.from('families').delete().eq('klan_id',id)
-  await sb.from('platser').delete().eq('klan_id',id)
-  await sb.from('klaner').delete().eq('id',id)
-  await renderAdminPanel()
-}
-
 // ── INIT ──────────────────────────────────────────────────────────────────────
-async function init() {
+async function init(){
   showLoading()
-  const [f,p,r,pf,pl] = await Promise.all([
-    sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
-    sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
-    sb.from('receipts').select('*').order('date',{ascending:false}),
-    sb.from('period_families').select('*'),
-    sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
+  const [p,e] = await Promise.all([
+    sb.from('house_people').select('*').order('name'),
+    sb.from('house_entries').select('*').order('date',{ascending:false})
   ])
-  state.families = f.data||[]
-  state.periods = p.data||[]
-  state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
-  state.periodFamilies = pf.data||[]
-  state.platser = pl.data||[]
-  const savedPeriodId = localStorage.getItem('kvitton_period')
-  if(state.periods.length){
-    if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
-      state.selectedPeriodId = savedPeriodId
-    } else if(!state.selectedPeriodId){
-      state.selectedPeriodId = state.periods[0].id
-    }
-  }
-  renderPeriodSelect()
+  state.people = p.data||[]
+  state.entries = e.data||[]
   renderActive()
 }
 
 function showLoading(){ const el=document.getElementById('tab-'+activeTab); if(el) el.innerHTML='<div class="loading">Laddar…</div>' }
-
-function renderPeriodSelect(){
-  const sel = document.getElementById('periodSel')
-  const createBtn = document.getElementById('createPeriodBtn')
-  if(!state.periods.length){
-    sel.style.display='none'
-    createBtn.style.display=''
-    return
-  }
-  sel.style.display=''
-  createBtn.style.display='none'
-  sel.innerHTML = state.periods.map(p=>`<option value="${p.id}" ${p.id===state.selectedPeriodId?'selected':''}>${p.status==='avräknad'?'🔒 ':''}${esc(p.name)}</option>`).join('')
-}
-
-function onPeriodChange(id){ state.selectedPeriodId=id; localStorage.setItem('kvitton_period',id); renderActive() }
 
 function showTab(name,btn){
   document.getElementById('tab-'+activeTab).style.display='none'
@@ -214,212 +80,51 @@ function renderActive(){ render(activeTab) }
 
 function render(tab){
   const el = document.getElementById('tab-'+tab)
-  if(tab==='receipts') el.innerHTML = renderReceipts()
-  if(tab==='report')   el.innerHTML = renderReport()
-  if(tab==='families') el.innerHTML = renderFamilies()
-  if(tab==='platser')  el.innerHTML = renderPlatser()
-  if(tab==='periods')  el.innerHTML = renderPeriods()
-  if(tab==='bulk')     renderBulk(el)
-  if(tab==='klan')     el.innerHTML = renderKlan()
+  if(tab==='entries') el.innerHTML = renderEntries()
+  if(tab==='people')  el.innerHTML = renderPeople()
+  if(tab==='report')  el.innerHTML = renderReport()
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 function fmt(n,d=0){ return Number(n||0).toLocaleString('sv-SE',{minimumFractionDigits:d,maximumFractionDigits:d}) }
-function fmtDate(d){ return new Date(d).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}) }
+function fmtDate(d){ return d ? new Date(d).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric'}) : '' }
 function today(){ return new Date().toISOString().slice(0,10) }
-function periodReceipts(){ return state.receipts.filter(r=>r.period_id===state.selectedPeriodId) }
-function periodFamilyRows(){ return state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId) }
-function famName(id){ return (state.families.find(f=>f.id===id)||{}).name||'' }
-function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
-function currentPeriod(){ return state.periods.find(p=>p.id===state.selectedPeriodId) }
-function isLocked(p){ return p && p.status==='avräknad' }
+function personName(id){ return (state.people.find(p=>p.id===id)||{}).name||'(okänd)' }
 function closeModal(){ document.getElementById('modal').style.display='none'; document.getElementById('modal').innerHTML='' }
 function openModal(html){ document.getElementById('modal').innerHTML=html; document.getElementById('modal').style.display='block' }
-
-// ── KLAN TAB ──────────────────────────────────────────────────────────────────
-function renderKlan(){
-  return `<div class="sh"><span class="sh-title">${esc(currentKlanName)}</span></div>
-    <div class="card">
-      <div class="card-sub" style="margin-bottom:8px">Dela klanens namn och lösenord med de du vill bjuda in.</div>
-      <div class="btn-row">
-        <button class="btn btn-g btn-sm" onclick="switchKlan()">Byt / lämna klan</button>
-        <button class="btn btn-g btn-sm" onclick="newKlanModal()">+ Ny klan</button>
-      </div>
-    </div>`
+function availableYears(){
+  const years = new Set(state.entries.map(e=>new Date(e.date).getFullYear()))
+  years.add(new Date().getFullYear())
+  return Array.from(years).sort((a,b)=>b-a)
 }
 
-function newKlanModal(){
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Skapa ny klan</div>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Familjer och perioder är separata per klan. Dela lösenordet med de du vill ha med.</p>
-    <div class="fg"><label>Klanens namn</label><input id="new-klan-name" placeholder="t.ex. Fjällresan" autofocus/></div>
-    <div class="fg"><label>Lösenord</label><input id="new-klan-password" type="password"/></div>
-    <div class="gate-status" id="new-klan-status"></div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="createKlanFromApp()">Skapa</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
+function availableCategories(){
+  const used = new Set(state.entries.map(e=>e.category).filter(Boolean))
+  DEFAULT_CATEGORIES.forEach(c=>used.add(c))
+  return Array.from(used).sort()
 }
 
-async function createKlanFromApp(){
-  const name = document.getElementById('new-klan-name').value.trim()
-  const password = document.getElementById('new-klan-password').value
-  const statusEl = document.getElementById('new-klan-status')
-  if(!name || !password){ statusEl.textContent='Fyll i både namn och lösenord.'; return }
-  statusEl.textContent='Skapar…'
-  const { data, error } = await sb.rpc('create_klan', { klan_name: name, klan_password: password })
-  if(error){ statusEl.textContent='Fel: '+error.message; return }
-  closeModal()
-  currentKlanId = data
-  currentKlanName = name
-  localStorage.setItem('kvitton_klan_id', currentKlanId)
-  localStorage.setItem('kvitton_klan_name', currentKlanName)
-  localStorage.removeItem('kvitton_period')
-  await enterApp()
+function showCategorySuggestions(prefix){
+  const input = document.getElementById(prefix+'-category')
+  const box = document.getElementById(prefix+'-category-suggestions')
+  if(!input || !box) return
+  const val = input.value.trim().toLowerCase()
+  const cats = availableCategories().filter(c=>!val || c.toLowerCase().includes(val))
+  if(!cats.length){ box.style.display='none'; box.innerHTML=''; return }
+  box.innerHTML = cats.map(c=>`<div class="autocomplete-item" onclick="selectCategory('${prefix}', this.textContent)">${esc(c)}</div>`).join('')
+  box.style.display='block'
 }
 
-// ── RECEIPTS ──────────────────────────────────────────────────────────────────
-function setReceiptFilter(famId){
-  receiptFilter = receiptFilter === famId ? null : famId
-  renderActive()
+function hideCategorySuggestions(prefix){
+  const box = document.getElementById(prefix+'-category-suggestions')
+  if(box) box.style.display='none'
 }
 
-function renderReceipts(){
-  if(!state.periods.length){
-    return `<p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[5])">📅 Skapa period</button></div>`
-  }
-  if(!state.selectedPeriodId) return '<p class="empty">Välj en period ovan.</p>'
-  const period = currentPeriod()
-  const locked = isLocked(period)
-  const allReceipts = periodReceipts()
-  const filtered = receiptFilter ? allReceipts.filter(r=>r.paid_by_family_id===receiptFilter) : allReceipts
-
-  // Summary always over all receipts
-  const totMat = allReceipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-  const totVin = allReceipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-  const sumBar = allReceipts.length ? `
-    <div class="sum-bar">
-      <div class="rep-row"><span>🥗 Mat</span><span>${fmt(totMat)} kr</span></div>
-      <div class="rep-row"><span>🍷 Vin</span><span>${fmt(totVin)} kr</span></div>
-      <div class="rep-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>Totalt</span><span>${fmt(totMat+totVin)} kr</span></div>
-    </div>` : ''
-
-  const lockedBanner = locked ? `<div class="hint" style="background:var(--danger-light);color:var(--danger)">🔒 Perioden är avräknad. Lås upp den under fliken Perioder för att lägga till fler kvitton.</div>` : ''
-
-  // Filter chips – bara familjer kopplade till den här perioden
-  const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId).map(pf=>pf.family_id))
-  const chipFamilies = state.families.filter(f=>periodFamIds.has(f.id))
-  const chips = `<div class="filter-chips">
-    <span class="chip ${!receiptFilter?'on':''}" onclick="setReceiptFilter(null)">Alla</span>
-    ${chipFamilies.map(f=>`<span class="chip ${receiptFilter===f.id?'on':''}" onclick="setReceiptFilter('${f.id}')">${esc(f.name)}</span>`).join('')}
-  </div>`
-
-  // Filtered sum if active
-  const filtFam = receiptFilter ? state.families.find(f=>f.id===receiptFilter) : null
-  const filtSum = filtFam ? (()=>{
-    const fMat = filtered.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-    const fVin = filtered.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-    return `<div style="font-size:13px;color:var(--accent);font-weight:600;margin-bottom:8px">${esc(filtFam.name)}: ${fmt(fMat+fVin)} kr (mat ${fmt(fMat)} · vin ${fmt(fVin)})</div>`
-  })() : ''
-
-  // Slim rows
-  const rows = filtered.map(r=>{
-    const paidBy = famName(r.paid_by_family_id)
-    const wine = r.alcohol_amount > 0
-    return `<div class="slim-row">
-      <div style="flex:1;min-width:0">
-        <div class="slim-desc">${wine?'🍷 ':'🥗 '}${esc(r.description)}</div>
-        <div class="slim-sub">${fmtDate(r.date)}${!receiptFilter&&paidBy?' · '+esc(paidBy):''}</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div class="slim-amt">${fmt(r.total_amount)} kr</div>
-      </div>
-      <div class="slim-actions">
-        <button class="btn btn-g btn-sm" onclick="editReceipt('${r.id}')">✏️</button>
-        <button class="btn btn-d btn-sm" onclick="delReceipt('${r.id}')">✕</button>
-      </div>
-    </div>`
-  }).join('')
-
-  const emptyMsg = allReceipts.length===0
-    ? '<p class="empty">Inga kvitton ännu. Tryck på Registrera kvitton nedan.</p>'
-    : filtered.length===0 ? `<p class="empty">Inga kvitton för ${esc(filtFam?.name||'')}.</p>` : ''
-
-  const addBtn = locked
-    ? `<button class="btn btn-g" disabled title="Perioden är avräknad">🔒 Registrera</button>`
-    : `<button class="btn btn-p" onclick="showTab('bulk', document.querySelectorAll('.tab')[1])">➕ Registrera kvitton</button>`
-
-  const platsTag = period && period.plats_id ? `<div class="card-sub" style="margin-bottom:8px">📍 ${esc(platsName(period.plats_id))}</div>` : ''
-
-  return `<div class="sh"><span class="sh-title">${esc((period||{}).name||'')}</span>
-    ${addBtn}</div>
-    ${platsTag}${lockedBanner}${sumBar}${chips}${filtSum}${emptyMsg}${rows}`
-}
-
-function setReceiptType(type){
-  const isWine = type==='wine'
-  document.getElementById('r-type-mat').classList.toggle('type-active', !isWine)
-  document.getElementById('r-type-vin').classList.toggle('type-active', isWine)
-  document.getElementById('r-type-val').value = type
-  const desc = document.getElementById('r-desc')
-  if(desc.value==='' || desc.value==='Matkvitto' || desc.value==='Vinkvitto'){
-    desc.value = isWine ? 'Vinkvitto' : 'Matkvitto'
-  }
-}
-
-function editReceipt(id){
-  const r = state.receipts.find(r=>r.id===id)
-  if(!r) return
-  const isWine = r.alcohol_amount > 0
-  const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===r.period_id).map(pf=>pf.family_id))
-  const famOpts = state.families.filter(f=>periodFamIds.has(f.id) || f.id===r.paid_by_family_id).map(f=>`<option value="${f.id}" ${f.id===r.paid_by_family_id?'selected':''}>${esc(f.name)}</option>`).join('')
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Redigera kvitto</div>
-    <div class="fg">
-      <label>Typ</label>
-      <div style="display:flex;gap:8px;margin-top:4px">
-        <button type="button" id="r-type-mat" class="type-btn ${!isWine?'type-active':''}" onclick="setReceiptType('mat')">🥗 Matkvitto</button>
-        <button type="button" id="r-type-vin" class="type-btn ${isWine?'type-active':''}" onclick="setReceiptType('wine')">🍷 Vinkvitto</button>
-      </div>
-      <input type="hidden" id="r-type-val" value="${isWine?'wine':'mat'}"/>
-    </div>
-    <div class="fg"><label>Beskrivning</label><input id="r-desc" value="${esc(r.description)}"/></div>
-    <div class="fr">
-      <div class="fg"><label>Datum</label><input type="date" id="r-date" value="${r.date}"/></div>
-      <div class="fg"><label>Betalat av</label><select id="r-paid"><option value="">– välj –</option>${famOpts}</select></div>
-    </div>
-    <div class="fg"><label>Belopp (kr)</label><input type="number" id="r-total" min="0" step="1" value="${r.total_amount}"/></div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="updateReceipt('${id}')">Spara</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-async function updateReceipt(id){
-  const desc = document.getElementById('r-desc').value.trim()
-  const total = parseFloat(document.getElementById('r-total').value)||0
-  if(!desc||!total){ alert('Fyll i beskrivning och belopp.'); return }
-  const isWine = document.getElementById('r-type-val').value === 'wine'
-  await sb.from('receipts').update({
-    description: desc,
-    date: document.getElementById('r-date').value,
-    total_amount: total,
-    alcohol_amount: isWine ? total : 0,
-    paid_by_family_id: document.getElementById('r-paid').value || null,
-  }).eq('id', id)
-  closeModal(); await init()
-}
-
-async function delReceipt(id){
-  if(!confirm('Ta bort kvittot?')) return
-  await sb.from('receipts').delete().eq('id',id)
-  await init()
+function selectCategory(prefix, cat){
+  const input = document.getElementById(prefix+'-category')
+  if(input) input.value = cat
+  hideCategorySuggestions(prefix)
 }
 
 function lightbox(url){
@@ -428,796 +133,447 @@ function lightbox(url){
   </div>`)
 }
 
-// ── REPORT ────────────────────────────────────────────────────────────────────
-function renderReport(){
-  if(!state.selectedPeriodId) return '<p class="empty">Välj en period.</p>'
-  const receipts = periodReceipts()
-  if(!receipts.length) return '<p class="empty">Inga kvitton i perioden ännu.</p>'
-  const pfRows = periodFamilyRows()
-  if(!pfRows.length) return '<p class="empty">Ange hur många dagar varje familj är med (Perioder → Dagar).</p>'
+// ── FOTO & TOLKNING ────────────────────────────────────────────────────────────
+async function handlePhotoSelect(event, prefix){
+  const file = event.target.files[0]
+  if(!file) return
+  selectedPhotoFile = file
+  const previewUrl = URL.createObjectURL(file)
+  const preview = document.getElementById(prefix+'-photo-preview')
+  if(preview) preview.innerHTML = `<img src="${previewUrl}" style="max-width:120px;border-radius:8px;margin-top:6px;display:block"/>`
+  const statusEl = document.getElementById(prefix+'-ocr-status')
+  if(statusEl) statusEl.textContent = '🔍 Läser av kvittot…'
+  try{
+    const { data:{ text } } = await Tesseract.recognize(file, 'swe')
+    const parsed = parseReceiptText(text)
+    const amountInput = document.getElementById(prefix+'-amount')
+    const dateInput = document.getElementById(prefix+'-date')
+    const descInput = document.getElementById(prefix+'-desc')
+    if(parsed.amount && amountInput && !amountInput.value) amountInput.value = parsed.amount
+    if(parsed.date && dateInput) dateInput.value = parsed.date
+    if(parsed.desc && descInput && !descInput.value) descInput.value = parsed.desc
+    if(statusEl){
+      statusEl.textContent = (parsed.amount||parsed.date||parsed.desc)
+        ? '✅ Förslag ifyllt automatiskt – dubbelkolla innan du sparar.'
+        : 'Kunde inte tolka kvittot automatiskt – fyll i manuellt.'
+    }
+  }catch(err){
+    if(statusEl) statusEl.textContent = 'Kunde inte läsa av kvittot automatiskt – fyll i manuellt.'
+  }
+}
 
-  const totMat = receipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-  const totVin = receipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-  const totAlt = totMat+totVin
-
-  const pfMap = {}; pfRows.forEach(pf=>{ pfMap[pf.family_id]=parseFloat(pf.days)||0 })
-  const pfMap2 = {}; pfRows.forEach(pf=>{ pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0 })
-
-  let sumMandagar=0, sumVinMandagar=0
-  const famData = state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).map(f=>{
-    const days=pfMap[f.id]||0
-    const guestDays=parseFloat(pfMap2[f.id]||0)
-const mandagar=days*parseFloat(f.factor||1)+guestDays
-    const vinMandagar=days*parseInt(f.wine_drinkers)
-    sumMandagar+=mandagar; sumVinMandagar+=vinMandagar
-    return {...f,days,guestDays,mandagar,vinMandagar}
-  })
-
-  const paidMat={},paidVin={}
-  state.families.forEach(f=>{paidMat[f.id]=0;paidVin[f.id]=0})
-  receipts.forEach(r=>{
-    if(!r.paid_by_family_id) return
-    paidMat[r.paid_by_family_id]=(paidMat[r.paid_by_family_id]||0)+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0)
-    paidVin[r.paid_by_family_id]=(paidVin[r.paid_by_family_id]||0)+(parseFloat(r.alcohol_amount)||0)
-  })
-
-  const report = famData.map(f=>{
-    const andelMat=sumMandagar>0?f.mandagar/sumMandagar:0
-    const andelVin=sumVinMandagar>0?f.vinMandagar/sumVinMandagar:0
-    const kronorMat=totMat*andelMat
-    const kronorVin=totVin*andelVin
-    const skalBetala=kronorMat+kronorVin
-    const utlagt=(paidMat[f.id]||0)+(paidVin[f.id]||0)
-    const diff=utlagt-skalBetala
-    return {...f,andelMat:Math.round(andelMat*100),andelVin:Math.round(andelVin*100),kronorMat,kronorVin,skalBetala,utlagtMat:paidMat[f.id]||0,utlagtVin:paidVin[f.id]||0,utlagt,diff}
-  }).sort((a,b)=>b.diff-a.diff)
-
-  const mandagskostnadMat=sumMandagar>0?totMat/sumMandagar:0
-  const mandagskostnadVin=sumVinMandagar>0?totVin/sumVinMandagar:0
-  const totalVindrickare=famData.reduce((s,f)=>s+parseInt(f.wine_drinkers),0)
-
-  const summary=`<div class="rep-summary">
-    <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <div><h3>Totalt utlagt</h3><div class="rep-total-num">${fmt(totAlt)} kr</div></div>
-      <div style="text-align:right;font-size:12px;opacity:.8">${receipts.length} kvitton</div>
-    </div>
-    <div class="rep-divider">
-      <div class="rep-row"><span>🥗 Mat</span><span>${fmt(totMat)} kr</span></div>
-      <div class="rep-row"><span>🍷 Vin</span><span>${fmt(totVin)} kr</span></div>
-    </div>
-    <div class="rep-divider">
-      <div class="rep-row"><span>Mandagar totalt</span><span>${fmt(sumMandagar)}</span></div>
-      <div class="rep-row"><span>Kostnad/mandag mat</span><span>${fmt(mandagskostnadMat)} kr</span></div>
-      <div class="rep-row"><span>Kostnad/vindag</span><span>${fmt(mandagskostnadVin)} kr</span></div>
-      <div class="rep-row"><span>Vindrickare</span><span>${totalVindrickare} st</span></div>
-    </div>
-  </div>`
-
-  const cards = report.map(f=>`<div class="fam-card">
-    <div class="fam-name">${esc(f.name)}</div>
-    <div class="fam-row"><span>Dagar</span><span>${fmt(f.days,1)}</span></div>
-    ${f.guestDays>0?`<div class="fam-row"><span>🧑‍🤝‍🧑 Gästdagar</span><span>+${fmt(f.guestDays,1)}</span></div>`:''}
-    <div class="fam-row"><span>Mandagar (${fmt(f.mandagar,2)})</span><span>${f.andelMat}% av mat</span></div>
-    ${f.vinMandagar>0?`<div class="fam-row"><span>VinMandagar (${fmt(f.vinMandagar,1)})</span><span>${f.andelVin}% av vin</span></div>`:''}
-    <div style="border-top:1px solid var(--border);margin:7px 0"></div>
-    <div class="fam-row"><span>🥗 KronorMat</span><span>${fmt(f.kronorMat)} kr</span></div>
-    ${f.kronorVin>0?`<div class="fam-row"><span>🍷 KronorVin</span><span>${fmt(f.kronorVin)} kr</span></div>`:''}
-    <div class="fam-row" style="font-weight:600"><span>Ska betala</span><span>${fmt(f.skalBetala)} kr</span></div>
-    <div style="border-top:1px solid var(--border);margin:7px 0"></div>
-    ${f.utlagtMat>0?`<div class="fam-row"><span>Utlagt mat</span><span>${fmt(f.utlagtMat)} kr</span></div>`:''}
-    ${f.utlagtVin>0?`<div class="fam-row"><span>Utlagt vin</span><span>${fmt(f.utlagtVin)} kr</span></div>`:''}
-    <div class="fam-total">
-      <span>${f.diff>=0?'✅ Ska få tillbaka':'💸 Ska swisha'}</span>
-      <span style="color:${f.diff>=0?'var(--accent-muted)':'var(--danger)'}">${f.diff>=0?'+':''}${fmt(f.diff)} kr</span>
-    </div>
-  </div>`).join('')
-
-  // ── Swish-beräkning ──
-  const payers = report.filter(f=>f.diff < -0.5).map(f=>({name:f.name, owe: -f.diff}))
-  const receivers = report.filter(f=>f.diff > 0.5).map(f=>({name:f.name, get: f.diff}))
-
-  const transactions = []
-  const payersCopy = payers.map(p=>({...p}))
-  const receiversCopy = receivers.map(r=>({...r}))
-  let pi=0, ri=0
-  while(pi < payersCopy.length && ri < receiversCopy.length){
-    const p = payersCopy[pi], r = receiversCopy[ri]
-    const amt = Math.min(p.owe, r.get)
-    if(amt > 0.5) transactions.push({from:p.name, to:r.name, amt})
-    p.owe -= amt; r.get -= amt
-    if(p.owe < 0.5) pi++
-    if(r.get < 0.5) ri++
+function parseReceiptText(text){
+  let date = null
+  const isoMatch = text.match(/(20\d{2})[-.](\d{2})[-.](\d{2})/)
+  if(isoMatch){
+    date = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  } else {
+    const dmyMatch = text.match(/(\d{2})[.\/-](\d{2})[.\/-](20\d{2}|\d{2})/)
+    if(dmyMatch){
+      let [,d,m,y] = dmyMatch
+      if(y.length===2) y = '20'+y
+      date = `${y}-${m}-${d}`
+    } else {
+      const monthNames = {jan:1,januari:1,feb:2,februari:2,mar:3,mars:3,apr:4,april:4,maj:5,jun:6,juni:6,jul:7,juli:7,aug:8,augusti:8,sep:9,september:9,okt:10,oktober:10,nov:11,november:11,dec:12,december:12}
+      const monthMatch = text.match(/(\d{1,2})\s+(jan(?:uari)?|feb(?:ruari)?|mar(?:s)?|apr(?:il)?|maj|jun(?:i)?|jul(?:i)?|aug(?:usti)?|sep(?:tember)?|okt(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{4}|\d{2})/i)
+      if(monthMatch){
+        const day = monthMatch[1].padStart(2,'0')
+        const month = String(monthNames[monthMatch[2].toLowerCase()]).padStart(2,'0')
+        let year = monthMatch[3]
+        if(year.length===2) year = '20'+year
+        date = `${year}-${month}-${day}`
+      }
+    }
   }
 
-  const swishHtml = transactions.length ? `
-    <div class="swish-box">
-      <div class="swish-title">💸 Swish-instruktioner</div>
-      ${transactions.map(t=>`
-        <div class="swish-row">
-          <span class="swish-from">${esc(t.from)}</span>
-          <span style="color:var(--muted)">→</span>
-          <span class="swish-to">${esc(t.to)}</span>
-          <span class="swish-amt">${fmt(t.amt)} kr</span>
-        </div>`).join('')}
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean)
+
+  // Sök i prioritetsordning – "att betala" är oftast mest tillförlitligt, sen totalt/summa
+  const priorityPatterns = [/att betala/i, /totalt|total/i, /(?<!del)summa/i, /belopp/i]
+  let amount = null
+  for(const pattern of priorityPatterns){
+    for(let i=lines.length-1;i>=0;i--){
+      if(pattern.test(lines[i])){
+        const numMatch = lines[i].match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
+        if(numMatch){ amount = normalizeAmount(numMatch[1]); break }
+      }
+    }
+    if(amount) break
+  }
+  if(!amount){
+    // Fallback: sista rad som ser ut som ett kronbelopp (totalsumman ligger oftast sist)
+    const currencyLines = lines.filter(l=>/kr\b|:-|\bSEK\b/i.test(l))
+    for(let i=currencyLines.length-1;i>=0;i--){
+      const numMatch = currencyLines[i].match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
+      if(numMatch){ amount = normalizeAmount(numMatch[1]); break }
+    }
+  }
+  if(!amount){
+    const allNums = [...text.matchAll(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2}))/g)].map(m=>normalizeAmount(m[1])).filter(n=>n>0)
+    if(allNums.length) amount = Math.max(...allNums)
+  }
+
+  const desc = guessDescription(lines)
+
+  return { date, amount, desc }
+}
+
+function guessDescription(lines){
+  for(const line of lines.slice(0,6)){
+    const letters = (line.match(/[A-Za-zÅÄÖåäö]/g)||[]).length
+    if(letters>=3 && line.length<=40 && !/^\d/.test(line) && !/^(kvitto|butik|adress|org\.?nr|kvittonr)/i.test(line)){
+      return line
+    }
+  }
+  return null
+}
+
+function normalizeAmount(s){
+  const cleaned = s.replace(/\s/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',', '.')
+  const n = parseFloat(cleaned)
+  return isNaN(n) ? null : n
+}
+
+async function uploadReceiptPhoto(file){
+  const ext = (file.name.split('.').pop()||'jpg').toLowerCase()
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`
+  const { error } = await sb.storage.from('receipts').upload(path, file)
+  if(error) throw error
+  const { data } = sb.storage.from('receipts').getPublicUrl(path)
+  return data.publicUrl
+}
+
+// ── ENTRIES (Utlägg) ────────────────────────────────────────────────────────────
+function renderEntries(){
+  if(!state.people.length){
+    return `<p class="empty">Lägg till minst en person innan du kan registrera utlägg.</p>
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('people', document.querySelectorAll('.tab')[1])">👤 Lägg till person</button></div>`
+  }
+
+  const years = availableYears()
+  const yearOpts = years.map(y=>`<option value="${y}" ${y===entryYear?'selected':''}>${y}</option>`).join('')
+
+  const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===entryYear)
+  let filtered = entryPersonFilter ? yearEntries.filter(e=>e.person_id===entryPersonFilter) : yearEntries
+  filtered = entryCategoryFilter ? filtered.filter(e=>e.category===entryCategoryFilter) : filtered
+
+  const totAll = yearEntries.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+  const totPaid = yearEntries.filter(e=>e.paid_date).reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+  const totUnpaid = totAll - totPaid
+
+  const sumBar = yearEntries.length ? `
+    <div class="rep-summary" style="margin-bottom:12px">
+      <div class="rep-row"><span>Totalt registrerat ${entryYear}</span><span>${fmt(totAll)} kr</span></div>
+      <div class="rep-row"><span>Utbetalt</span><span>${fmt(totPaid)} kr</span></div>
+      <div class="rep-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>Oreglerat</span><span>${fmt(totUnpaid)} kr</span></div>
     </div>` : ''
 
-  const csvBtn=`<button class="btn btn-g btn-sm" onclick="exportCSV()">⬇ CSV</button>`
-
-  return `<div class="sh"><span class="sh-title">Rapport</span>${csvBtn}</div>${summary}${swishHtml}${cards}`
-}
-
-function exportCSV(){
-  const receipts=periodReceipts(), pfRows=periodFamilyRows()
-  const pfMap={}; pfRows.forEach(pf=>{pfMap[pf.family_id]=parseFloat(pf.days)||0})
-  const pfMap2={}; pfRows.forEach(pf=>{pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0})
-  let sumMandagar=0,sumVinMandagar=0
-  const totMat=receipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-  const totVin=receipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-  const famData=state.families.filter(f=>pfMap[f.id]>0).map(f=>{
-    const days=pfMap[f.id]||0,gd=parseFloat(pfMap2[f.id]||0),mandagar=days*parseFloat(f.factor||1)+gd,vinMandagar=days*parseInt(f.wine_drinkers)
-    sumMandagar+=mandagar;sumVinMandagar+=vinMandagar;return {...f,days,mandagar,vinMandagar}
-  })
-  const paidMat={},paidVin={}
-  state.families.forEach(f=>{paidMat[f.id]=0;paidVin[f.id]=0})
-  receipts.forEach(r=>{if(!r.paid_by_family_id)return;paidMat[r.paid_by_family_id]=(paidMat[r.paid_by_family_id]||0)+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0);paidVin[r.paid_by_family_id]=(paidVin[r.paid_by_family_id]||0)+(parseFloat(r.alcohol_amount)||0)})
-  const rows=[['Familj','Dagar','Mandagar','Andel mat%','VinMandagar','Andel vin%','KronorMat','KronorVin','Ska betala','Utlagt','Diff']]
-  famData.forEach(f=>{
-    const aM=sumMandagar>0?f.mandagar/sumMandagar:0,aV=sumVinMandagar>0?f.vinMandagar/sumVinMandagar:0
-    const kM=totMat*aM,kV=totVin*aV,sk=kM+kV,ut=(paidMat[f.id]||0)+(paidVin[f.id]||0)
-    rows.push([f.name,fmt(f.days,1),fmt(f.mandagar,2),Math.round(aM*100),fmt(f.vinMandagar,1),Math.round(aV*100),fmt(kM),fmt(kV),fmt(sk),fmt(ut),fmt(ut-sk)])
-  })
-  const csv=rows.map(r=>r.join(';')).join('\n')
-  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv)
-  a.download=`rapport.csv`;a.click()
-}
-
-// ── FAMILIES ──────────────────────────────────────────────────────────────────
-function toggleHideTemporary(){ hideTemporaryFamilies = !hideTemporaryFamilies; renderActive() }
-
-function renderFamilies(){
-  const visible = hideTemporaryFamilies ? state.families.filter(f=>!f.is_temporary) : state.families
   const chips = `<div class="filter-chips">
-    <span class="chip ${hideTemporaryFamilies?'on':''}" onclick="toggleHideTemporary()">Dölj tillfälliga</span>
+    <span class="chip ${!entryPersonFilter?'on':''}" onclick="setEntryFilter(null)">Alla</span>
+    ${state.people.map(p=>`<span class="chip ${entryPersonFilter===p.id?'on':''}" onclick="setEntryFilter('${p.id}')">${esc(p.name)}</span>`).join('')}
   </div>`
-  const cards = visible.map(f=>`<div class="card">
-    <div class="card-hdr">
-      <div>
-        <div class="card-title">${esc(f.name)}${f.is_temporary?' <span class="tag">Tillfällig</span>':''}</div>
-        <div class="card-sub">Faktor: <strong>${fmt(parseFloat(f.factor||1),2)}</strong></div>
-        <div class="card-sub">🍷 ${f.wine_drinkers} vindrickare</div>
+
+  const usedCategories = Array.from(new Set(yearEntries.map(e=>e.category).filter(Boolean))).sort()
+  const categoryFilterHtml = usedCategories.length ? `<div class="fg" style="max-width:220px">
+    <select onchange="setCategoryFilter(this.value)">
+      <option value="">Alla kategorier</option>
+      ${usedCategories.map(c=>`<option value="${esc(c)}" ${entryCategoryFilter===c?'selected':''}>${esc(c)}</option>`).join('')}
+    </select>
+  </div>` : ''
+
+  const rows = filtered.map(e=>{
+    const paid = !!e.paid_date
+    return `<div class="entry-row">
+      <div class="entry-top">
+        <div>
+          <div class="entry-desc">${esc(e.description)}</div>
+          <div class="entry-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}${e.category?' · '+esc(e.category):''}</div>
+        </div>
+        <div class="entry-amt">${fmt(e.amount)} kr</div>
       </div>
-      <div class="btn-row">
-        <button class="btn btn-g btn-sm" onclick="editFamily('${f.id}')">Redigera</button>
-        <button class="btn btn-d btn-sm" onclick="delFamily('${f.id}')">Ta bort</button>
+      ${e.image_url?`<img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-top:6px"/>`:''}
+      <div class="entry-bottom">
+        <span class="badge ${paid?'badge-paid':'badge-unpaid'}">${paid?'✅ Reglerat '+fmtDate(e.paid_date):'🟡 Oreglerat'}</span>
+        <div class="entry-actions">
+          ${paid
+            ? `<button class="btn btn-g btn-sm" onclick="unmarkPaid('${e.id}')">Ångra</button>`
+            : `<button class="btn btn-gold btn-sm" onclick="markPaidModal('${e.id}')">Markera reglerat</button>`}
+          <button class="btn btn-g btn-sm" onclick="editEntry('${e.id}')">✏️</button>
+          <button class="btn btn-d btn-sm" onclick="delEntry('${e.id}')">✕</button>
+        </div>
       </div>
+    </div>`
+  }).join('')
+
+  const emptyMsg = yearEntries.length===0
+    ? `<p class="empty">Inga utlägg registrerade för ${entryYear} ännu.</p>`
+    : filtered.length===0 ? '<p class="empty">Inga utlägg för den här personen.</p>' : ''
+
+  return `<div class="sh">
+      <span class="sh-title">Utlägg</span>
+      <select style="width:auto" id="entry-year-sel" onchange="setEntryYear(this.value)">${yearOpts}</select>
     </div>
-  </div>`).join('')
-  return `<div class="sh"><span class="sh-title">Familjer</span><button class="btn btn-p" onclick="newFamily()">+ Lägg till</button></div>
-    ${chips}
-    ${!visible.length?'<p class="empty">Inga familjer att visa.</p>':cards}`
+    <div class="card" style="margin-bottom:12px">
+      <div class="fr">
+        <div class="fg"><label>Vem</label><select id="ne-person"><option value="">– välj –</option>${state.people.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>Datum</label><input type="date" id="ne-date" value="${today()}"/></div>
+      </div>
+      <div class="fg"><label>Foto på kvittot (valfritt – försöker läsa av belopp/datum)</label>
+        <input type="file" id="ne-photo" accept="image/*" capture="environment" onchange="handlePhotoSelect(event,'ne')"/>
+        <div id="ne-photo-preview"></div>
+        <div id="ne-ocr-status" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+      </div>
+      <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ne-desc" placeholder="Beskriv vad utlägget avser, t.ex. leverantör, vad som köptes och varför"></textarea></div>
+      <div class="fr">
+        <div class="fg"><label>Belopp (kr)</label><input type="number" id="ne-amount" min="0" step="1"/></div>
+        <div class="fg autocomplete-wrap"><label>Kategori</label>
+          <input id="ne-category" placeholder="t.ex. Reparation" autocomplete="off"
+            oninput="showCategorySuggestions('ne')" onfocus="showCategorySuggestions('ne')" onblur="setTimeout(()=>hideCategorySuggestions('ne'),150)"/>
+          <div id="ne-category-suggestions" class="autocomplete-list"></div>
+        </div>
+      </div>
+      <button class="btn btn-p" style="width:100%" onclick="saveEntry()">💾 Registrera utlägg</button>
+      <div id="ne-status" style="margin-top:8px;font-size:13px;color:var(--accent)"></div>
+    </div>
+    ${sumBar}${chips}${categoryFilterHtml}${emptyMsg}${rows}`
 }
 
-function familyModal(f=null){
-  const id=f?f.id:''
+function setEntryYear(y){ entryYear=parseInt(y); renderActive() }
+function setEntryFilter(id){ entryPersonFilter = entryPersonFilter===id ? null : id; renderActive() }
+function setCategoryFilter(cat){ entryCategoryFilter = cat || null; renderActive() }
+
+async function saveEntry(){
+  const personId = document.getElementById('ne-person').value
+  const date = document.getElementById('ne-date').value
+  const desc = document.getElementById('ne-desc').value.trim()
+  const amount = parseFloat(document.getElementById('ne-amount').value)||0
+  const category = document.getElementById('ne-category').value.trim() || null
+  const statusEl = document.getElementById('ne-status')
+  if(!personId){ statusEl.textContent='Välj vem.'; return }
+  if(!desc){ statusEl.textContent='Beskriv vad utlägget avser.'; return }
+  if(!amount){ statusEl.textContent='Ange ett belopp.'; return }
+  statusEl.textContent='Sparar…'
+  let imageUrl = null
+  if(selectedPhotoFile){
+    statusEl.textContent='Laddar upp bild…'
+    try{ imageUrl = await uploadReceiptPhoto(selectedPhotoFile) }
+    catch(err){ statusEl.textContent='Kunde inte ladda upp bilden: '+err.message; return }
+  }
+  await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, category, image_url:imageUrl, paid_date:null })
+  selectedPhotoFile = null
+  entryYear = new Date(date).getFullYear()
+  await init()
+  showTab('entries', document.querySelector('.tab'))
+  const s = document.getElementById('ne-status'); if(s) s.textContent='✅ Sparat!'
+  setTimeout(()=>{ const s2=document.getElementById('ne-status'); if(s2) s2.textContent='' }, 2500)
+}
+
+function editEntry(id){
+  const e = state.entries.find(e=>e.id===id)
+  if(!e) return
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">${f?'Redigera familj':'Ny familj'}</div>
-    <div class="fg"><label>Namn</label><input id="f-name" value="${esc(f?f.name:'')}" placeholder="t.ex. J+S" autofocus/></div>
+    <div class="modal-title">Redigera utlägg</div>
     <div class="fr">
-      <div class="fg"><label>Faktor</label><input type="number" id="f-factor" value="${f?f.factor:1}" min="0" step="0.05"/><div style="font-size:12px;color:var(--muted);margin-top:3px">t.ex. 1.75 = två personer varav en betalar 75%</div></div>
+      <div class="fg"><label>Vem</label><select id="ee-person">${state.people.map(p=>`<option value="${p.id}" ${p.id===e.person_id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>Datum</label><input type="date" id="ee-date" value="${e.date}"/></div>
     </div>
-    <div class="fg"><label>Antal vindrickare</label><input type="number" id="f-wine" value="${f?f.wine_drinkers:0}" min="0" step="1"/></div>
-    <div class="fg"><label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="f-temp" style="width:auto" ${f&&f.is_temporary?'checked':''}/> Tillfällig familj (visas dold som standard)</label></div>
+    ${e.image_url?`<div class="fg"><label>Kvittobild</label><img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer"/></div>`:''}
+    <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ee-desc">${esc(e.description)}</textarea></div>
+    <div class="fr">
+      <div class="fg"><label>Belopp (kr)</label><input type="number" id="ee-amount" min="0" step="1" value="${e.amount}"/></div>
+      <div class="fg autocomplete-wrap"><label>Kategori</label>
+        <input id="ee-category" value="${esc(e.category||'')}" placeholder="t.ex. Reparation" autocomplete="off"
+          oninput="showCategorySuggestions('ee')" onfocus="showCategorySuggestions('ee')" onblur="setTimeout(()=>hideCategorySuggestions('ee'),150)"/>
+        <div id="ee-category-suggestions" class="autocomplete-list"></div>
+      </div>
+    </div>
     <div class="btn-row">
-      <button class="btn btn-p" onclick="saveFamily('${id}')">Spara</button>
+      <button class="btn btn-p" onclick="updateEntry('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
 }
 
-function newFamily(){ familyModal() }
-function editFamily(id){ familyModal(state.families.find(f=>f.id===id)) }
-
-async function saveFamily(id){
-  const payload={
-    name:document.getElementById('f-name').value.trim(),
-    factor:parseFloat(document.getElementById('f-factor').value)||1,
-    wine_drinkers:parseInt(document.getElementById('f-wine').value)||0,
-    is_temporary:document.getElementById('f-temp').checked
-  }
-  if(!payload.name){ alert('Ange ett namn.'); return }
-  if(id) await sb.from('families').update(payload).eq('id',id)
-  else await sb.from('families').insert({...payload, klan_id: currentKlanId})
+async function updateEntry(id){
+  const personId = document.getElementById('ee-person').value
+  const date = document.getElementById('ee-date').value
+  const desc = document.getElementById('ee-desc').value.trim()
+  const amount = parseFloat(document.getElementById('ee-amount').value)||0
+  const category = document.getElementById('ee-category').value.trim() || null
+  if(!desc||!amount){ alert('Fyll i beskrivning och belopp.'); return }
+  await sb.from('house_entries').update({ person_id:personId, date, description:desc, amount, category }).eq('id',id)
   closeModal(); await init()
 }
 
-async function delFamily(id){
-  if(!confirm('Ta bort familj?')) return
-  await sb.from('families').delete().eq('id',id)
+async function delEntry(id){
+  if(!confirm('Ta bort utlägget?')) return
+  await sb.from('house_entries').delete().eq('id',id)
   await init()
 }
 
-// ── PLATSER ───────────────────────────────────────────────────────────────────
-function renderPlatser(){
-  const cards = state.platser.map(pl=>{
-    const periodCount = state.periods.filter(p=>p.plats_id===pl.id).length
+function markPaidModal(id){
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Markera som betald</div>
+    <div class="fg"><label>Utbetalningsdatum</label><input type="date" id="pd-date" value="${today()}"/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="confirmMarkPaid('${id}')">Spara</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+async function confirmMarkPaid(id){
+  const date = document.getElementById('pd-date').value
+  if(!date){ alert('Ange ett datum.'); return }
+  await sb.from('house_entries').update({ paid_date:date }).eq('id',id)
+  closeModal(); await init()
+}
+
+async function unmarkPaid(id){
+  if(!confirm('Ångra utbetalningen och markera som obetald igen?')) return
+  await sb.from('house_entries').update({ paid_date:null }).eq('id',id)
+  await init()
+}
+
+// ── PEOPLE (Personer) ────────────────────────────────────────────────────────────
+function renderPeople(){
+  const cards = state.people.map(p=>{
+    const entries = state.entries.filter(e=>e.person_id===p.id)
+    const unpaidCount = entries.filter(e=>!e.paid_date).length
     return `<div class="card">
       <div class="card-hdr">
         <div>
-          <div class="card-title">${esc(pl.name)}</div>
-          <div class="card-sub">${periodCount} period${periodCount===1?'':'er'}</div>
+          <div class="card-title">${esc(p.name)}</div>
+          ${p.email?`<div class="card-sub">${esc(p.email)}</div>`:''}
+          <div class="card-sub">${entries.length} utlägg${unpaidCount?` · ${unpaidCount} obetalda`:''}</div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-g btn-sm" onclick="editPlats('${pl.id}')">Redigera</button>
-          <button class="btn btn-d btn-sm" onclick="delPlats('${pl.id}')">Ta bort</button>
+          <button class="btn btn-g btn-sm" onclick="editPerson('${p.id}')">Redigera</button>
+          <button class="btn btn-d btn-sm" onclick="delPerson('${p.id}')">Ta bort</button>
         </div>
       </div>
     </div>`
   }).join('')
-  return `<div class="sh"><span class="sh-title">Ställen</span><button class="btn btn-p" onclick="newPlats()">+ Lägg till</button></div>
-    <div class="hint">Ett ställe (t.ex. Båstad eller Kroatien) kan kopplas till perioder, så ni kan se vilka som är var. Perioder utan ställe fungerar precis som förut.</div>
-    ${!state.platser.length?'<p class="empty">Inga ställen ännu.</p>':cards}`
+  return `<div class="sh"><span class="sh-title">Personer</span><button class="btn btn-p" onclick="newPerson()">+ Lägg till</button></div>
+    ${!state.people.length?'<p class="empty">Lägg till personer som kan registrera utlägg.</p>':cards}`
 }
 
-function platsModal(pl=null){
-  const id=pl?pl.id:''
+function personModal(p=null){
+  const id=p?p.id:''
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">${pl?'Redigera ställe':'Nytt ställe'}</div>
-    <div class="fg"><label>Namn</label><input id="pl-name" value="${esc(pl?pl.name:'')}" placeholder="t.ex. Båstad" autofocus/></div>
+    <div class="modal-title">${p?'Redigera person':'Ny person'}</div>
+    <div class="fg"><label>Namn</label><input id="p-name" value="${esc(p?p.name:'')}" placeholder="t.ex. Jalle" autofocus/></div>
+    <div class="fg"><label>Mejladress (valfritt, bara för identifiering)</label><input id="p-email" type="email" value="${esc(p?(p.email||''):'')}" placeholder="namn@exempel.se"/></div>
     <div class="btn-row">
-      <button class="btn btn-p" onclick="savePlats('${id}')">Spara</button>
+      <button class="btn btn-p" onclick="savePerson('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
 }
 
-function newPlats(){ platsModal() }
-function editPlats(id){ platsModal(state.platser.find(p=>p.id===id)) }
+function newPerson(){ personModal() }
+function editPerson(id){ personModal(state.people.find(p=>p.id===id)) }
 
-async function savePlats(id){
-  const name = document.getElementById('pl-name').value.trim()
+async function savePerson(id){
+  const name = document.getElementById('p-name').value.trim()
+  const email = document.getElementById('p-email').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  if(id) await sb.from('platser').update({name}).eq('id',id)
-  else await sb.from('platser').insert({name, klan_id: currentKlanId})
+  if(id) await sb.from('house_people').update({name,email}).eq('id',id)
+  else await sb.from('house_people').insert({name,email})
   closeModal(); await init()
 }
 
-async function delPlats(id){
-  if(!confirm('Ta bort stället? Perioder som var kopplade till det förlorar bara kopplingen, de tas inte bort.')) return
-  await sb.from('platser').delete().eq('id',id)
+async function delPerson(id){
+  const hasEntries = state.entries.some(e=>e.person_id===id)
+  if(hasEntries){ alert('Den här personen har registrerade utlägg. Ta bort eller flytta dem först.'); return }
+  if(!confirm('Ta bort person?')) return
+  await sb.from('house_people').delete().eq('id',id)
   await init()
 }
 
-// ── PERIODS ───────────────────────────────────────────────────────────────────
-function renderPeriods(){
-  const cards = state.periods.map(p=>{
-    const locked = isLocked(p)
-    const entries=state.periodFamilies.filter(pf=>pf.period_id===p.id)
-    const famDayTags = state.families.map(f=>{
-      const ex = entries.find(e=>e.family_id===f.id)
-      if(!ex) return ''
-      const dagar = ex.days || 0
-      const gast = ex.guest_days || 0
-      const label = dagar > 0 || gast > 0
-        ? `${fmt(dagar,1)} dagar${gast>0?' (+'+fmt(gast,1)+' gäst)':''}`
-        : '0 dagar'
-      return `<span class="tag tag-clickable" onclick="editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label} ✏️</span>`
-    }).join('')
-    // Stats
-    const pReceipts = state.receipts.filter(r=>r.period_id===p.id)
-    const totMat = pReceipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-    const totVin = pReceipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-    const pfRows = entries
-    const pfMap = {}; pfRows.forEach(pf=>{ pfMap[pf.family_id]=parseFloat(pf.days)||0 })
-    const pfMap2 = {}; pfRows.forEach(pf=>{ pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0 })
-    let sumMandagar=0
-    state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).forEach(f=>{
-      sumMandagar += (pfMap[f.id]||0)*parseFloat(f.factor||1)+(pfMap2[f.id]||0)
-    })
-    const mkMat = sumMandagar>0 ? totMat/sumMandagar : 0
-    const mkVin = sumMandagar>0 ? totVin/sumMandagar : 0
-    const statsHtml = pReceipts.length ? `
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted)">
-        <span>${pReceipts.length} kvitton</span>
-        <span>🥗 ${fmt(totMat)} kr</span>
-        <span>🍷 ${fmt(totVin)} kr</span>
-        ${sumMandagar>0?`<span>⚖️ ${fmt(mkMat)}/mandag mat · ${fmt(mkVin)}/mandag vin</span>`:''}
-      </div>` : ''
-    const statusBadge = locked
-      ? `<span class="badge badge-lock">🔒 Avräknad</span>`
-      : `<span class="badge badge-active">Aktiv</span>`
-    const platsBadge = p.plats_id ? `<span class="badge" style="background:var(--accent-light);color:var(--accent)">📍 ${esc(platsName(p.plats_id))}</span>` : ''
-    const lockBtn = locked
-      ? `<button class="btn btn-g btn-sm" onclick="unlockPeriod('${p.id}')">🔓 Lås upp</button>`
-      : `<button class="btn btn-w btn-sm" onclick="lockPeriod('${p.id}')">🔒 Avräkna</button>`
-    return `<div class="card">
-      <div class="card-hdr">
-        <div style="flex:1">
-          <div class="card-title">${esc(p.name)} ${statusBadge} ${platsBadge}</div>
-          <div class="card-sub">${new Date(p.starts_at).toLocaleDateString('sv-SE')} – ${new Date(p.ends_at).toLocaleDateString('sv-SE')}</div>
-          ${statsHtml}
-          <div class="tags" style="margin-top:6px">${famDayTags}</div>
-        </div>
-        <div class="btn-row" style="flex-direction:column;align-items:flex-end">
-          <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}')">Välj</button>
-          <button class="btn btn-g btn-sm" onclick="editPeriodDates('${p.id}')">Redigera</button>
-          ${lockBtn}
-          <button class="btn btn-d btn-sm" onclick="delPeriod('${p.id}')">Ta bort</button>
-        </div>
+// ── REPORT (Rapport) ────────────────────────────────────────────────────────────
+function renderReport(){
+  const years = availableYears()
+  const yearOpts = years.map(y=>`<option value="${y}" ${y===reportYear?'selected':''}>${y}</option>`).join('')
+  const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===reportYear)
+
+  if(!yearEntries.length){
+    return `<div class="sh"><span class="sh-title">Rapport</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
+      <p class="empty">Inga utlägg registrerade för ${reportYear}.</p>`
+  }
+
+  const totAll = yearEntries.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+  const totPaid = yearEntries.filter(e=>e.paid_date).reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+
+  const summary = `<div class="rep-summary">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end">
+      <div><h3>Totalt registrerat ${reportYear}</h3><div class="rep-total-num">${fmt(totAll)} kr</div></div>
+      <div style="text-align:right;font-size:12px;opacity:.8">${yearEntries.length} utlägg</div>
+    </div>
+    <div class="rep-divider">
+      <div class="rep-row"><span>Utbetalt</span><span>${fmt(totPaid)} kr</span></div>
+      <div class="rep-row" style="font-weight:700"><span>Oreglerat</span><span>${fmt(totAll-totPaid)} kr</span></div>
+    </div>
+  </div>`
+
+  // Kompakt sammanställning per kategori – till för bokföring/redovisning
+  const catTotals = {}
+  yearEntries.forEach(e=>{
+    const cat = e.category || 'Okategoriserat'
+    catTotals[cat] = (catTotals[cat]||0) + (parseFloat(e.amount)||0)
+  })
+  const catRows = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).map(([cat,sum])=>
+    `<div class="fam-row"><span>${esc(cat)}</span><span>${fmt(sum)} kr</span></div>`
+  ).join('')
+  const categoryCard = `<div class="fam-card">
+    <div class="fam-name">Per kategori (för redovisning)</div>
+    ${catRows}
+    <div class="fam-total"><span>Totalt</span><span>${fmt(totAll)} kr</span></div>
+  </div>`
+
+  const csvBtn = `<button class="btn btn-g btn-sm" onclick="exportHouseCSV()">⬇ CSV (alla rader)</button>`
+
+  const cards = state.people.map(p=>{
+    const entries = yearEntries.filter(e=>e.person_id===p.id)
+    if(!entries.length) return ''
+    const registered = entries.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+    const paid = entries.filter(e=>e.paid_date).reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+    const remaining = registered - paid
+    return `<div class="fam-card">
+      <div class="fam-name">${esc(p.name)}</div>
+      <div class="fam-row"><span>Antal utlägg</span><span>${entries.length}</span></div>
+      <div class="fam-row"><span>Registrerat</span><span>${fmt(registered)} kr</span></div>
+      <div class="fam-row"><span>Utbetalt</span><span>${fmt(paid)} kr</span></div>
+      <div class="fam-total">
+        <span>${remaining>0.5?'🟡 Oreglerat':'✅ Reglerat'}</span>
+        <span style="color:${remaining>0.5?'var(--gold)':'var(--green)'}">${fmt(remaining)} kr</span>
       </div>
     </div>`
   }).join('')
-  return `<div class="sh"><span class="sh-title">Perioder</span><button class="btn btn-p" onclick="newPeriod()">+ Ny period</button></div>
-    ${!state.periods.length?'<p class="empty">Skapa en period för att börja logga kvitton.</p>':cards}`
+
+  return `<div class="sh"><span class="sh-title">Rapport</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
+    ${summary}
+    <div class="sh" style="margin-top:4px"><span></span>${csvBtn}</div>
+    ${categoryCard}${cards}`
 }
 
-async function lockPeriod(id){
-  if(!confirm('Avräkna perioden? Det går inte längre att lägga till nya kvitton (du kan låsa upp den igen senare).')) return
-  await sb.from('periods').update({status:'avräknad'}).eq('id',id)
-  await init()
-}
-
-async function unlockPeriod(id){
-  if(!confirm('Lås upp perioden så att kvitton kan läggas till igen?')) return
-  await sb.from('periods').update({status:'aktiv'}).eq('id',id)
-  await init()
-}
-
-function newPeriod(){
-  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}">${esc(pl.name)}</option>`).join('')
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Ny period</div>
-    <div class="fg"><label>Namn</label><input id="p-name" placeholder="t.ex. Påsk 2025" autofocus/></div>
-    <div class="fr">
-      <div class="fg"><label>Startdatum</label><input type="date" id="p-start" value="${today()}"/></div>
-      <div class="fg"><label>Slutdatum</label><input type="date" id="p-end" value="${today()}"/></div>
-    </div>
-    <div class="fg"><label>Ställe (valfritt)</label><select id="p-plats">${platsOpts}</select></div>
-    <div class="fg"><label>Vilka familjer är med?</label>
-      <div class="family-check-list" style="margin-top:6px">
-        ${state.families.map(f=>`
-          <label class="fam-check" id="fc-label-${f.id}">
-            <input type="checkbox" id="fc-${f.id}" onchange="toggleFamCheck('${f.id}')"/> ${esc(f.name)}
-          </label>`).join('')}
-      </div>
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="savePeriod()">Skapa</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-function toggleFamCheck(famId){
-  const lbl = document.getElementById('fc-label-'+famId)
-  const cb = document.getElementById('fc-'+famId)
-  if(lbl) lbl.style.background = cb.checked ? 'var(--accent-light)' : ''
-  if(lbl) lbl.style.borderColor = cb.checked ? 'var(--accent)' : ''
-}
-
-async function savePeriod(){
-  const name=document.getElementById('p-name').value.trim()
-  if(!name){ alert('Ange ett namn.'); return }
-  const checked = state.families.filter(f=>document.getElementById('fc-'+f.id)?.checked)
-  if(!checked.length){ alert('Välj minst en familj.'); return }
-  const platsId = document.getElementById('p-plats').value || null
-  const {data:p}=await sb.from('periods').insert({name,starts_at:document.getElementById('p-start').value,ends_at:document.getElementById('p-end').value,klan_id:currentKlanId,status:'aktiv',plats_id:platsId}).select().single()
-  if(p){
-    const rows = checked.map(f=>({period_id:p.id,family_id:f.id,days:0,guest_days:0,day_states:JSON.stringify([])}))
-    await sb.from('period_families').insert(rows)
-    state.selectedPeriodId=p.id
-  }
-  closeModal(); await init()
-}
-
-// dayState[familyId][dayIndex] = 0 | 1 | 0.5
-let dayState = {}
-let editDaysPeriodId = null
-
-function getDatesInPeriod(period){
-  const dates = []
-  const [sy,sm,sd] = period.starts_at.split('-').map(Number)
-  const [ey,em,ed] = period.ends_at.split('-').map(Number)
-  const d = new Date(sy, sm-1, sd)
-  const end = new Date(ey, em-1, ed)
-  while(d <= end){ dates.push(new Date(d)); d.setDate(d.getDate()+1) }
-  return dates
-}
-
-function dayLabel(date){
-  const days = ['sö','må','ti','on','to','fr','lö']
-  return days[date.getDay()] + ' ' + date.getDate()
-}
-
-function editDays(periodId){
-  editDaysPeriodId = periodId
-  const period = state.periods.find(p=>p.id===periodId)
-  const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
-  const dates = getDatesInPeriod(period)
-
-  dayState = {}
-  state.families.forEach(f=>{
-    const ex = existing.find(e=>e.family_id===f.id)
-    dayState[f.id] = Array(dates.length).fill(0)
-    if(ex && ex.day_states){
-      try{ dayState[f.id] = JSON.parse(ex.day_states) } catch(e){}
-    } else if(ex && ex.days > 0){
-      let rem = ex.days
-      for(let i=0;i<dates.length;i++){
-        if(rem >= 1){ dayState[f.id][i]=1; rem-=1 }
-        else if(rem >= 0.5){ dayState[f.id][i]=0.5; rem-=0.5 }
-        else break
-      }
-    }
+function exportHouseCSV(){
+  const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===reportYear)
+  const rows = [['Datum','Person','Kategori','Beskrivning','Belopp','Reglerat']]
+  yearEntries.forEach(e=>{
+    rows.push([e.date, personName(e.person_id), e.category||'', e.description, fmt(e.amount), e.paid_date?fmtDate(e.paid_date):'Oreglerat'])
   })
-  renderDaysModal(period, dates)
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n')
+  const a = document.createElement('a')
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv)
+  a.download = `bastadkonto_${reportYear}.csv`
+  a.click()
 }
 
-function renderDaysModal(period, dates){
-  const famRows = state.families.map(f=>{
-    if(!dayState[f.id] || dayState[f.id].length !== dates.length){
-      const old = dayState[f.id] || []
-      dayState[f.id] = Array(dates.length).fill(0).map((_,i) => old[i] || 0)
-    }
-    const total = dayState[f.id].reduce((s,v)=>s+v,0)
-    const cells = dayState[f.id].map((val,i)=>{
-      const isOn = val > 0
-      const isHalf = val === 0.5
-      return `<div class="day-cell">
-        <div class="day-cb ${isOn?(isHalf?'half':'on'):''}" onclick="toggleDay('${f.id}',${i})">${isOn?(isHalf?'½':'✓'):''}</div>
-        ${isOn ? `<button class="day-half-btn ${isHalf?'on':''}" onclick="toggleHalf('${f.id}',${i})">½</button>` : '<div style="height:18px"></div>'}
-        <div class="day-label">${dayLabel(dates[i])}</div>
-      </div>`
-    }).join('')
-    return `<div class="fam-days-row">
-      <div class="fam-days-name"><span>${esc(f.name)}</span><span class="days-total">${fmt(total,1)} dagar</span></div>
-      <div class="day-grid">${cells}</div>
-    </div>`
-  }).join('')
-
-  const modalHtml = `<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Dagar – ${esc(period?.name||'')}</div>
-    ${famRows}
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="saveEditDays()">Spara</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`
-  openModal(modalHtml)
-}
-
-function toggleDay(famId, idx){
-  if(!dayState[famId]) return
-  dayState[famId][idx] = dayState[famId][idx] > 0 ? 0 : 1
-  const period = state.periods.find(p=>p.id===editDaysPeriodId)
-  renderDaysModal(period, getDatesInPeriod(period))
-}
-
-function toggleHalf(famId, idx){
-  if(!dayState[famId]) return
-  dayState[famId][idx] = dayState[famId][idx] === 0.5 ? 1 : 0.5
-  const period = state.periods.find(p=>p.id===editDaysPeriodId)
-  renderDaysModal(period, getDatesInPeriod(period))
-}
-
-async function saveEditDays(){
-  const periodId = editDaysPeriodId
-  await sb.from('period_families').delete().eq('period_id',periodId)
-  const rows = state.families.map(f=>{
-    const states = dayState[f.id]||[]
-    const days = states.reduce((s,v)=>s+v,0)
-    return { period_id:periodId, family_id:f.id, days, day_states: JSON.stringify(states) }
-  }).filter(r=>r.days>0)
-  if(rows.length) await sb.from('period_families').insert(rows)
-  closeModal(); await init()
-}
-
-function editPeriodDates(periodId){
-  const p = state.periods.find(p=>p.id===periodId)
-  if(!p) return
-  const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
-  const existingFamIds = existing.map(e=>e.family_id)
-  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===p.plats_id?'selected':''}>${esc(pl.name)}</option>`).join('')
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Redigera period</div>
-    <div class="fg"><label>Namn</label><input id="ep-name" value="${esc(p.name)}"/></div>
-    <div class="fr">
-      <div class="fg"><label>Startdatum</label><input type="date" id="ep-start" value="${p.starts_at}"/></div>
-      <div class="fg"><label>Slutdatum</label><input type="date" id="ep-end" value="${p.ends_at}"/></div>
-    </div>
-    <div class="fg"><label>Ställe (valfritt)</label><select id="ep-plats">${platsOpts}</select></div>
-    <div class="fg"><label>Familjer i perioden</label>
-      <div class="family-check-list" style="margin-top:6px">
-        ${state.families.map(f=>{
-          const checked = existingFamIds.includes(f.id)
-          return `<label class="fam-check" id="efc-label-${f.id}" style="${checked?'background:var(--accent-light);border-color:var(--accent)':''}">
-            <input type="checkbox" id="efc-${f.id}" ${checked?'checked':''} onchange="toggleEditFamCheck('${f.id}')"/> ${esc(f.name)}
-          </label>`
-        }).join('')}
-      </div>
-      <div style="font-size:12px;color:var(--danger);margin-top:6px">OBS: om du tar bort en familj försvinner deras dagar i perioden.</div>
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="savePeriodDates('${periodId}')">Spara</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-function toggleEditFamCheck(famId){
-  const lbl = document.getElementById('efc-label-'+famId)
-  const cb = document.getElementById('efc-'+famId)
-  if(lbl){ lbl.style.background = cb.checked ? 'var(--accent-light)' : ''; lbl.style.borderColor = cb.checked ? 'var(--accent)' : '' }
-}
-
-async function savePeriodDates(periodId){
-  const name = document.getElementById('ep-name').value.trim()
-  if(!name){ alert('Ange ett namn.'); return }
-  await sb.from('periods').update({
-    name,
-    starts_at: document.getElementById('ep-start').value,
-    ends_at: document.getElementById('ep-end').value,
-    plats_id: document.getElementById('ep-plats').value || null
-  }).eq('id', periodId)
-
-  const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
-  const checkedIds = state.families.filter(f=>document.getElementById('efc-'+f.id)?.checked).map(f=>f.id)
-  const toAdd = checkedIds.filter(id=>!existing.find(e=>e.family_id===id))
-  const toRemove = existing.filter(e=>!checkedIds.includes(e.family_id)).map(e=>e.family_id)
-
-  if(toRemove.length){
-    for(const famId of toRemove){
-      await sb.from('period_families').delete().eq('period_id',periodId).eq('family_id',famId)
-    }
-  }
-  if(toAdd.length){
-    const {error} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,days:0,guest_days:0,day_states:'[]'})))
-    if(error){
-      const {error:e2} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,days:0})))
-      if(e2) { alert('Kunde inte lägga till familj: '+e2.message); return }
-    }
-  }
-
-  closeModal(); await init()
-}
-
-function editFamilyDays(periodId, familyId){
-  editDaysPeriodId = periodId
-  const period = state.periods.find(p=>p.id===periodId)
-  const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
-  const dates = getDatesInPeriod(period)
-
-  dayState = {}
-  state.families.forEach(f=>{
-    const ex = existing.find(e=>e.family_id===f.id)
-    dayState[f.id] = Array(dates.length).fill(0)
-    if(ex && ex.day_states){
-      try{ dayState[f.id] = JSON.parse(ex.day_states) } catch(e){}
-    } else if(ex && ex.days > 0){
-      let rem = ex.days
-      for(let i=0;i<dates.length;i++){
-        if(rem >= 1){ dayState[f.id][i]=1; rem-=1 }
-        else if(rem >= 0.5){ dayState[f.id][i]=0.5; rem-=0.5 }
-        else break
-      }
-    }
-  })
-
-  renderSingleFamilyDaysModal(period, dates, familyId)
-}
-
-function renderSingleFamilyDaysModal(period, dates, familyId){
-  const fam = state.families.find(f=>f.id===familyId)
-  if(!dayState[familyId] || dayState[familyId].length !== dates.length){
-    const old = dayState[familyId] || []
-    dayState[familyId] = Array(dates.length).fill(0).map((_,i) => old[i] || 0)
-  }
-  const total = dayState[familyId].reduce((s,v)=>s+v,0)
-  const cells = dayState[familyId].map((val,i)=>{
-    const isOn = val > 0
-    const isHalf = val === 0.5
-    return `<div class="day-cell">
-      <div class="day-cb ${isOn?(isHalf?'half':'on'):''}" onclick="toggleDaySingle('${familyId}',${i},'${period.id}')">${isOn?(isHalf?'½':'✓'):''}</div>
-      ${isOn ? `<button class="day-half-btn ${isHalf?'on':''}" onclick="toggleHalfSingle('${familyId}',${i},'${period.id}')">½</button>` : '<div style="height:18px"></div>'}
-      <div class="day-label">${dayLabel(dates[i])}</div>
-    </div>`
-  }).join('')
-
-  const ex = state.periodFamilies.find(pf=>pf.period_id===editDaysPeriodId&&pf.family_id===familyId)
-  const guestDays = ex ? (parseFloat(ex.guest_days)||0) : 0
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">${esc(fam?.name||'')} – ${esc(period?.name||'')}</div>
-    <div class="fam-days-row" style="border:none;padding:0">
-      <div class="fam-days-name"><span>Dagar närvarande</span><span class="days-total">${fmt(total,1)} dagar</span></div>
-      <div class="day-grid">${cells}</div>
-    </div>
-    <div class="fg" style="margin-top:14px">
-      <label>Extra gästdagar (läggs till mandagarna)</label>
-      <input type="number" id="guest-days-input" min="0" step="0.5" value="${guestDays}" placeholder="0"/>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px">Gäster som ${esc(fam?.name||'')} bjuder på – deras dagar räknas in i familjens mandagar</div>
-    </div>
-    <div class="btn-row" style="margin-top:12px">
-      <button class="btn btn-p" onclick="saveEditDaysWithGuest('${familyId}')">Spara</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-function toggleDaySingle(famId, idx, periodId){
-  if(!dayState[famId]) return
-  dayState[famId][idx] = dayState[famId][idx] > 0 ? 0 : 1
-  const period = state.periods.find(p=>p.id===periodId)
-  renderSingleFamilyDaysModal(period, getDatesInPeriod(period), famId)
-}
-
-function toggleHalfSingle(famId, idx, periodId){
-  if(!dayState[famId]) return
-  dayState[famId][idx] = dayState[famId][idx] === 0.5 ? 1 : 0.5
-  const period = state.periods.find(p=>p.id===periodId)
-  renderSingleFamilyDaysModal(period, getDatesInPeriod(period), famId)
-}
-
-async function saveEditDaysWithGuest(familyId){
-  const periodId = editDaysPeriodId
-  const guestDays = parseFloat(document.getElementById('guest-days-input')?.value)||0
-  await sb.from('period_families').delete().eq('period_id',periodId)
-  const rows = state.families.map(f=>{
-    const s = dayState[f.id]||[]
-    const d = s.reduce((sum,v)=>sum+v,0)
-    const gd = f.id===familyId ? guestDays : (state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===f.id)?.guest_days||0)
-    return { period_id:periodId, family_id:f.id, days:d, guest_days:gd, day_states:JSON.stringify(s) }
-  }).filter(r=>r.days>0||r.guest_days>0||state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===r.family_id))
-  if(rows.length) await sb.from('period_families').insert(rows)
-  closeModal(); await init()
-}
-
-function selectPeriod(id){ state.selectedPeriodId=id; renderPeriodSelect(); closeModal(); showTab('receipts',document.querySelector('.tab')) }
-
-async function delPeriod(id){
-  if(!confirm('Ta bort perioden och alla dess kvitton?')) return
-  await sb.from('periods').delete().eq('id',id)
-  if(state.selectedPeriodId===id) state.selectedPeriodId=null
-  await init()
-}
-
-// ── BULK ENTRY ────────────────────────────────────────────────────────────────
-let bulkRows = []
-let bulkNextId = 1
-
-function renderBulk(el){
-  const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId).map(pf=>pf.family_id))
-  const bulkFamilies = state.families.filter(f=>periodFamIds.has(f.id))
-  const famOpts = '<option value="">– välj familj –</option>' + bulkFamilies.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')
-  const activePeriods = state.periods.filter(p=>!isLocked(p))
-  const periodOpts = '<option value="">– välj period –</option>' + activePeriods.map(p=>`<option value="${p.id}" ${p.id===state.selectedPeriodId?'selected':''}>${esc(p.name)}</option>`).join('')
-
-  if(!bulkRows.length) addBulkRow()
-
-  if(!state.periods.length){
-    el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[5])">📅 Skapa period</button></div>`
-    return
-  }
-  if(!activePeriods.length){
-    el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Alla perioder är avräknade. Lås upp en period under fliken Perioder för att registrera fler kvitton.</p>`
-    return
-  }
-
-  const noFamiliesMsg = state.selectedPeriodId && !bulkFamilies.length
-    ? `<p class="empty" style="margin-bottom:12px">Inga familjer är kopplade till den här perioden än. Lägg till dem under fliken Perioder.</p>` : ''
-
-  const rows = bulkRows.map(r => `
-    <div class="bulk-row" id="brow-${r.id}">
-      <div class="bulk-type">
-        <button class="${r.type==='mat'?'on':''}" onclick="setBulkType(${r.id},'mat')">🥗</button>
-        <button class="${r.type==='vin'?'on':''}" onclick="setBulkType(${r.id},'vin')">🍷</button>
-      </div>
-      <input style="flex:2" placeholder="Beskrivning" value="${esc(r.desc)}" oninput="setBulkField(${r.id},'desc',this.value)"/>
-      <input style="flex:1;min-width:70px" type="number" min="0" step="1" placeholder="kr" value="${r.amount||''}" oninput="setBulkField(${r.id},'amount',this.value)"/>
-      <button class="del-row" onclick="delBulkRow(${r.id})">✕</button>
-    </div>`).join('')
-
-  el.innerHTML = `
-    <div class="sh"><span class="sh-title">Registrera flera</span></div>
-    <div class="card" style="margin-bottom:12px">
-      <div class="fg" style="margin-bottom:10px">
-        <label>Period</label>
-        <select id="bulk-period" onchange="setBulkPeriod(this.value)">${periodOpts}</select>
-      </div>
-      <div class="fg" style="margin-bottom:0">
-        <label>Betalat av</label>
-        <select id="bulk-family">${famOpts}</select>
-      </div>
-    </div>
-    ${noFamiliesMsg}
-    <div id="bulk-rows">${rows}</div>
-    <div class="btn-row" style="margin-top:4px">
-      <button class="btn btn-g" onclick="addBulkRow()">+ Lägg till rad</button>
-      <button class="btn btn-p" onclick="saveBulk()">💾 Spara alla</button>
-    </div>
-    <div id="bulk-status" style="margin-top:10px;font-size:13px;color:var(--accent)"></div>`
-}
-
-function setBulkPeriod(val){
-  state.selectedPeriodId = val
-  document.getElementById('periodSel').value = val
-  renderActive()
-}
-
-function addBulkRow(){
-  bulkRows.push({id: bulkNextId++, type:'mat', desc:'Matkvitto', amount:''})
-  renderActive()
-  setTimeout(()=>{
-    const inputs = document.querySelectorAll('.bulk-row input[type=number]')
-    if(inputs.length) inputs[inputs.length-1].focus()
-  }, 50)
-}
-
-function delBulkRow(id){
-  bulkRows = bulkRows.filter(r=>r.id!==id)
-  if(!bulkRows.length) addBulkRow()
-  else renderActive()
-}
-
-function setBulkType(id, type){
-  const r = bulkRows.find(r=>r.id===id)
-  if(!r) return
-  r.type = type
-  if(r.desc==='' || r.desc==='Matkvitto' || r.desc==='Vinkvitto'){
-    r.desc = type==='vin' ? 'Vinkvitto' : 'Matkvitto'
-  }
-  renderActive()
-}
-
-function setBulkField(id, field, val){
-  const r = bulkRows.find(r=>r.id===id)
-  if(r) r[field] = val
-}
-
-async function saveBulk(){
-  const periodId = document.getElementById('bulk-period').value
-  const familyId = document.getElementById('bulk-family').value
-  if(!periodId){ alert('Välj en period.'); return }
-  if(!familyId){ alert('Välj vem som betalat.'); return }
-
-  document.querySelectorAll('.bulk-row').forEach(el => {
-    const id = parseInt(el.id.replace('brow-',''))
-    const r = bulkRows.find(r=>r.id===id)
-    if(!r) return
-    const inputs = el.querySelectorAll('input')
-    r.desc = inputs[0].value
-    r.amount = inputs[1].value
-  })
-
-  const valid = bulkRows.filter(r => r.desc.trim() && parseFloat(r.amount)>0)
-  if(!valid.length){ alert('Fyll i minst ett kvitto med belopp.'); return }
-
-  const inserts = valid.map(r => ({
-    period_id: periodId,
-    paid_by_family_id: familyId,
-    description: r.desc.trim(),
-    date: today(),
-    total_amount: parseFloat(r.amount),
-    alcohol_amount: r.type==='vin' ? parseFloat(r.amount) : 0,
-    image_url: null
-  }))
-
-  const statusEl = document.getElementById('bulk-status')
-  statusEl.textContent = 'Sparar…'
-  await sb.from('receipts').insert(inserts)
-  bulkRows = []
-  bulkNextId = 1
-  statusEl.textContent = ''
-  await init()
-  showTab('bulk', document.querySelectorAll('.tab')[1])
-  document.getElementById('bulk-status').textContent = `✅ ${valid.length} kvitton sparade!`
-  setTimeout(()=>{ const s=document.getElementById('bulk-status'); if(s) s.textContent='' }, 3000)
-}
+function setReportYear(y){ reportYear=parseInt(y); renderActive() }
 
 // ── START ─────────────────────────────────────────────────────────────────────
 boot()
