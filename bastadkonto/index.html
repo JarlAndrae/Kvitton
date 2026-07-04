@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="theme-color" content="#35577a"/>
+<title>Båstadkonto</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<div id="authGate"></div>
+
+<div class="app" id="mainApp" style="display:none">
+  <header class="hdr">
+    <h1>Båstadkonto</h1>
+    <div class="hdr-right">
+      <button class="btn btn-g btn-sm" onclick="logout()">Logga ut</button>
+    </div>
+  </header>
+  <nav class="tabs">
+    <button class="tab on" onclick="showTab('entries',this)">💰 Utlägg</button>
+    <button class="tab" onclick="showTab('people',this)">👤 Personer</button>
+    <button class="tab" onclick="showTab('report',this)">📊 Rapport</button>
+  </nav>
+  <main class="main">
+    <div id="tab-entries"></div>
+    <div id="tab-people" style="display:none"></div>
+    <div id="tab-report" style="display:none"></div>
+  </main>
+</div>
+
+<div id="modal" style="display:none"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
