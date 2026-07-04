@@ -4,7 +4,11 @@ let state = { people:[], entries:[] }
 let activeTab = 'entries'
 let entryYear = new Date().getFullYear()
 let entryPersonFilter = null
+let entryCategoryFilter = null
 let reportYear = new Date().getFullYear()
+let selectedPhotoFile = null
+
+const DEFAULT_CATEGORIES = ['Reparation','Trädgård','El & Vatten','Städning','Inventarier/Möbler','Försäkring','Övrigt']
 
 // ── GATE ──────────────────────────────────────────────────────────────────────
 function boot(){
@@ -95,6 +99,90 @@ function availableYears(){
   return Array.from(years).sort((a,b)=>b-a)
 }
 
+function availableCategories(){
+  const used = new Set(state.entries.map(e=>e.category).filter(Boolean))
+  DEFAULT_CATEGORIES.forEach(c=>used.add(c))
+  return Array.from(used).sort()
+}
+
+function lightbox(url){
+  openModal(`<div class="overlay" onclick="closeModal()" style="align-items:center;justify-content:center">
+    <img src="${esc(url)}" style="max-width:92vw;max-height:85vh;border-radius:12px"/>
+  </div>`)
+}
+
+// ── FOTO & TOLKNING ────────────────────────────────────────────────────────────
+async function handlePhotoSelect(event, prefix){
+  const file = event.target.files[0]
+  if(!file) return
+  selectedPhotoFile = file
+  const previewUrl = URL.createObjectURL(file)
+  const preview = document.getElementById(prefix+'-photo-preview')
+  if(preview) preview.innerHTML = `<img src="${previewUrl}" style="max-width:120px;border-radius:8px;margin-top:6px;display:block"/>`
+  const statusEl = document.getElementById(prefix+'-ocr-status')
+  if(statusEl) statusEl.textContent = '🔍 Läser av kvittot…'
+  try{
+    const { data:{ text } } = await Tesseract.recognize(file, 'swe')
+    const parsed = parseReceiptText(text)
+    const amountInput = document.getElementById(prefix+'-amount')
+    const dateInput = document.getElementById(prefix+'-date')
+    if(parsed.amount && amountInput && !amountInput.value) amountInput.value = parsed.amount
+    if(parsed.date && dateInput) dateInput.value = parsed.date
+    if(statusEl){
+      statusEl.textContent = (parsed.amount||parsed.date)
+        ? '✅ Förslag ifyllt automatiskt – dubbelkolla innan du sparar.'
+        : 'Kunde inte tolka belopp/datum automatiskt – fyll i manuellt.'
+    }
+  }catch(err){
+    if(statusEl) statusEl.textContent = 'Kunde inte läsa av kvittot automatiskt – fyll i manuellt.'
+  }
+}
+
+function parseReceiptText(text){
+  let date = null
+  const isoMatch = text.match(/(20\d{2})[-.](\d{2})[-.](\d{2})/)
+  if(isoMatch){
+    date = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+  } else {
+    const dmyMatch = text.match(/(\d{2})[.\/-](\d{2})[.\/-](20\d{2}|\d{2})/)
+    if(dmyMatch){
+      let [,d,m,y] = dmyMatch
+      if(y.length===2) y = '20'+y
+      date = `${y}-${m}-${d}`
+    }
+  }
+
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean)
+  const keywordRe = /(summa|totalt|total|att betala|belopp)/i
+  let amount = null
+  for(const line of lines){
+    if(keywordRe.test(line)){
+      const numMatch = line.match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
+      if(numMatch){ amount = normalizeAmount(numMatch[1]); break }
+    }
+  }
+  if(!amount){
+    const allNums = [...text.matchAll(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2}))/g)].map(m=>normalizeAmount(m[1])).filter(n=>n>0)
+    if(allNums.length) amount = Math.max(...allNums)
+  }
+  return { date, amount }
+}
+
+function normalizeAmount(s){
+  const cleaned = s.replace(/\s/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',', '.')
+  const n = parseFloat(cleaned)
+  return isNaN(n) ? null : n
+}
+
+async function uploadReceiptPhoto(file){
+  const ext = (file.name.split('.').pop()||'jpg').toLowerCase()
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`
+  const { error } = await sb.storage.from('receipts').upload(path, file)
+  if(error) throw error
+  const { data } = sb.storage.from('receipts').getPublicUrl(path)
+  return data.publicUrl
+}
+
 // ── ENTRIES (Utlägg) ────────────────────────────────────────────────────────────
 function renderEntries(){
   if(!state.people.length){
@@ -106,7 +194,8 @@ function renderEntries(){
   const yearOpts = years.map(y=>`<option value="${y}" ${y===entryYear?'selected':''}>${y}</option>`).join('')
 
   const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===entryYear)
-  const filtered = entryPersonFilter ? yearEntries.filter(e=>e.person_id===entryPersonFilter) : yearEntries
+  let filtered = entryPersonFilter ? yearEntries.filter(e=>e.person_id===entryPersonFilter) : yearEntries
+  filtered = entryCategoryFilter ? filtered.filter(e=>e.category===entryCategoryFilter) : filtered
 
   const totAll = yearEntries.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
   const totPaid = yearEntries.filter(e=>e.paid_date).reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
@@ -124,16 +213,25 @@ function renderEntries(){
     ${state.people.map(p=>`<span class="chip ${entryPersonFilter===p.id?'on':''}" onclick="setEntryFilter('${p.id}')">${esc(p.name)}</span>`).join('')}
   </div>`
 
+  const usedCategories = Array.from(new Set(yearEntries.map(e=>e.category).filter(Boolean))).sort()
+  const categoryFilterHtml = usedCategories.length ? `<div class="fg" style="max-width:220px">
+    <select onchange="setCategoryFilter(this.value)">
+      <option value="">Alla kategorier</option>
+      ${usedCategories.map(c=>`<option value="${esc(c)}" ${entryCategoryFilter===c?'selected':''}>${esc(c)}</option>`).join('')}
+    </select>
+  </div>` : ''
+
   const rows = filtered.map(e=>{
     const paid = !!e.paid_date
     return `<div class="entry-row">
       <div class="entry-top">
         <div>
           <div class="entry-desc">${esc(e.description)}</div>
-          <div class="entry-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}</div>
+          <div class="entry-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}${e.category?' · '+esc(e.category):''}</div>
         </div>
         <div class="entry-amt">${fmt(e.amount)} kr</div>
       </div>
+      ${e.image_url?`<img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-top:6px"/>`:''}
       <div class="entry-bottom">
         <span class="badge ${paid?'badge-paid':'badge-unpaid'}">${paid?'✅ Betald '+fmtDate(e.paid_date):'⏳ Obetald'}</span>
         <div class="entry-actions">
@@ -160,28 +258,46 @@ function renderEntries(){
         <div class="fg"><label>Vem</label><select id="ne-person"><option value="">– välj –</option>${state.people.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>Datum</label><input type="date" id="ne-date" value="${today()}"/></div>
       </div>
+      <div class="fg"><label>Foto på kvittot (valfritt – försöker läsa av belopp/datum)</label>
+        <input type="file" id="ne-photo" accept="image/*" capture="environment" onchange="handlePhotoSelect(event,'ne')"/>
+        <div id="ne-photo-preview"></div>
+        <div id="ne-ocr-status" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+      </div>
       <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ne-desc" placeholder="Beskriv vad utlägget avser, t.ex. leverantör, vad som köptes och varför"></textarea></div>
-      <div class="fg"><label>Belopp (kr)</label><input type="number" id="ne-amount" min="0" step="1"/></div>
+      <div class="fr">
+        <div class="fg"><label>Belopp (kr)</label><input type="number" id="ne-amount" min="0" step="1"/></div>
+        <div class="fg"><label>Kategori</label><input id="ne-category" list="category-list" placeholder="t.ex. Reparation"/></div>
+      </div>
+      <datalist id="category-list">${availableCategories().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
       <button class="btn btn-p" style="width:100%" onclick="saveEntry()">💾 Registrera utlägg</button>
       <div id="ne-status" style="margin-top:8px;font-size:13px;color:var(--accent)"></div>
     </div>
-    ${sumBar}${chips}${emptyMsg}${rows}`
+    ${sumBar}${chips}${categoryFilterHtml}${emptyMsg}${rows}`
 }
 
 function setEntryYear(y){ entryYear=parseInt(y); renderActive() }
 function setEntryFilter(id){ entryPersonFilter = entryPersonFilter===id ? null : id; renderActive() }
+function setCategoryFilter(cat){ entryCategoryFilter = cat || null; renderActive() }
 
 async function saveEntry(){
   const personId = document.getElementById('ne-person').value
   const date = document.getElementById('ne-date').value
   const desc = document.getElementById('ne-desc').value.trim()
   const amount = parseFloat(document.getElementById('ne-amount').value)||0
+  const category = document.getElementById('ne-category').value.trim() || null
   const statusEl = document.getElementById('ne-status')
   if(!personId){ statusEl.textContent='Välj vem.'; return }
   if(!desc){ statusEl.textContent='Beskriv vad utlägget avser.'; return }
   if(!amount){ statusEl.textContent='Ange ett belopp.'; return }
   statusEl.textContent='Sparar…'
-  await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, paid_date:null })
+  let imageUrl = null
+  if(selectedPhotoFile){
+    statusEl.textContent='Laddar upp bild…'
+    try{ imageUrl = await uploadReceiptPhoto(selectedPhotoFile) }
+    catch(err){ statusEl.textContent='Kunde inte ladda upp bilden: '+err.message; return }
+  }
+  await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, category, image_url:imageUrl, paid_date:null })
+  selectedPhotoFile = null
   entryYear = new Date(date).getFullYear()
   await init()
   showTab('entries', document.querySelector('.tab'))
@@ -199,8 +315,13 @@ function editEntry(id){
       <div class="fg"><label>Vem</label><select id="ee-person">${state.people.map(p=>`<option value="${p.id}" ${p.id===e.person_id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>Datum</label><input type="date" id="ee-date" value="${e.date}"/></div>
     </div>
+    ${e.image_url?`<div class="fg"><label>Kvittobild</label><img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer"/></div>`:''}
     <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ee-desc">${esc(e.description)}</textarea></div>
-    <div class="fg"><label>Belopp (kr)</label><input type="number" id="ee-amount" min="0" step="1" value="${e.amount}"/></div>
+    <div class="fr">
+      <div class="fg"><label>Belopp (kr)</label><input type="number" id="ee-amount" min="0" step="1" value="${e.amount}"/></div>
+      <div class="fg"><label>Kategori</label><input id="ee-category" list="category-list-edit" value="${esc(e.category||'')}" placeholder="t.ex. Reparation"/></div>
+    </div>
+    <datalist id="category-list-edit">${availableCategories().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
     <div class="btn-row">
       <button class="btn btn-p" onclick="updateEntry('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -213,8 +334,9 @@ async function updateEntry(id){
   const date = document.getElementById('ee-date').value
   const desc = document.getElementById('ee-desc').value.trim()
   const amount = parseFloat(document.getElementById('ee-amount').value)||0
+  const category = document.getElementById('ee-category').value.trim() || null
   if(!desc||!amount){ alert('Fyll i beskrivning och belopp.'); return }
-  await sb.from('house_entries').update({ person_id:personId, date, description:desc, amount }).eq('id',id)
+  await sb.from('house_entries').update({ person_id:personId, date, description:desc, amount, category }).eq('id',id)
   closeModal(); await init()
 }
 
@@ -331,6 +453,23 @@ function renderReport(){
     </div>
   </div>`
 
+  // Kompakt sammanställning per kategori – till för bokföring/redovisning
+  const catTotals = {}
+  yearEntries.forEach(e=>{
+    const cat = e.category || 'Okategoriserat'
+    catTotals[cat] = (catTotals[cat]||0) + (parseFloat(e.amount)||0)
+  })
+  const catRows = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).map(([cat,sum])=>
+    `<div class="fam-row"><span>${esc(cat)}</span><span>${fmt(sum)} kr</span></div>`
+  ).join('')
+  const categoryCard = `<div class="fam-card">
+    <div class="fam-name">Per kategori (för redovisning)</div>
+    ${catRows}
+    <div class="fam-total"><span>Totalt</span><span>${fmt(totAll)} kr</span></div>
+  </div>`
+
+  const csvBtn = `<button class="btn btn-g btn-sm" onclick="exportHouseCSV()">⬇ CSV (alla rader)</button>`
+
   const cards = state.people.map(p=>{
     const entries = yearEntries.filter(e=>e.person_id===p.id)
     if(!entries.length) return ''
@@ -350,7 +489,22 @@ function renderReport(){
   }).join('')
 
   return `<div class="sh"><span class="sh-title">Rapport</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
-    ${summary}${cards}`
+    ${summary}
+    <div class="sh" style="margin-top:4px"><span></span>${csvBtn}</div>
+    ${categoryCard}${cards}`
+}
+
+function exportHouseCSV(){
+  const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===reportYear)
+  const rows = [['Datum','Person','Kategori','Beskrivning','Belopp','Betald']]
+  yearEntries.forEach(e=>{
+    rows.push([e.date, personName(e.person_id), e.category||'', e.description, fmt(e.amount), e.paid_date?fmtDate(e.paid_date):'Nej'])
+  })
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n')
+  const a = document.createElement('a')
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv)
+  a.download = `bastadkonto_${reportYear}.csv`
+  a.click()
 }
 
 function setReportYear(y){ reportYear=parseInt(y); renderActive() }
