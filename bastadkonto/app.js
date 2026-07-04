@@ -105,6 +105,28 @@ function availableCategories(){
   return Array.from(used).sort()
 }
 
+function showCategorySuggestions(prefix){
+  const input = document.getElementById(prefix+'-category')
+  const box = document.getElementById(prefix+'-category-suggestions')
+  if(!input || !box) return
+  const val = input.value.trim().toLowerCase()
+  const cats = availableCategories().filter(c=>!val || c.toLowerCase().includes(val))
+  if(!cats.length){ box.style.display='none'; box.innerHTML=''; return }
+  box.innerHTML = cats.map(c=>`<div class="autocomplete-item" onclick="selectCategory('${prefix}', this.textContent)">${esc(c)}</div>`).join('')
+  box.style.display='block'
+}
+
+function hideCategorySuggestions(prefix){
+  const box = document.getElementById(prefix+'-category-suggestions')
+  if(box) box.style.display='none'
+}
+
+function selectCategory(prefix, cat){
+  const input = document.getElementById(prefix+'-category')
+  if(input) input.value = cat
+  hideCategorySuggestions(prefix)
+}
+
 function lightbox(url){
   openModal(`<div class="overlay" onclick="closeModal()" style="align-items:center;justify-content:center">
     <img src="${esc(url)}" style="max-width:92vw;max-height:85vh;border-radius:12px"/>
@@ -126,12 +148,14 @@ async function handlePhotoSelect(event, prefix){
     const parsed = parseReceiptText(text)
     const amountInput = document.getElementById(prefix+'-amount')
     const dateInput = document.getElementById(prefix+'-date')
+    const descInput = document.getElementById(prefix+'-desc')
     if(parsed.amount && amountInput && !amountInput.value) amountInput.value = parsed.amount
     if(parsed.date && dateInput) dateInput.value = parsed.date
+    if(parsed.desc && descInput && !descInput.value) descInput.value = parsed.desc
     if(statusEl){
-      statusEl.textContent = (parsed.amount||parsed.date)
+      statusEl.textContent = (parsed.amount||parsed.date||parsed.desc)
         ? '✅ Förslag ifyllt automatiskt – dubbelkolla innan du sparar.'
-        : 'Kunde inte tolka belopp/datum automatiskt – fyll i manuellt.'
+        : 'Kunde inte tolka kvittot automatiskt – fyll i manuellt.'
     }
   }catch(err){
     if(statusEl) statusEl.textContent = 'Kunde inte läsa av kvittot automatiskt – fyll i manuellt.'
@@ -149,15 +173,38 @@ function parseReceiptText(text){
       let [,d,m,y] = dmyMatch
       if(y.length===2) y = '20'+y
       date = `${y}-${m}-${d}`
+    } else {
+      const monthNames = {jan:1,januari:1,feb:2,februari:2,mar:3,mars:3,apr:4,april:4,maj:5,jun:6,juni:6,jul:7,juli:7,aug:8,augusti:8,sep:9,september:9,okt:10,oktober:10,nov:11,november:11,dec:12,december:12}
+      const monthMatch = text.match(/(\d{1,2})\s+(jan(?:uari)?|feb(?:ruari)?|mar(?:s)?|apr(?:il)?|maj|jun(?:i)?|jul(?:i)?|aug(?:usti)?|sep(?:tember)?|okt(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{4}|\d{2})/i)
+      if(monthMatch){
+        const day = monthMatch[1].padStart(2,'0')
+        const month = String(monthNames[monthMatch[2].toLowerCase()]).padStart(2,'0')
+        let year = monthMatch[3]
+        if(year.length===2) year = '20'+year
+        date = `${year}-${month}-${day}`
+      }
     }
   }
 
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean)
-  const keywordRe = /(summa|totalt|total|att betala|belopp)/i
+
+  // Sök i prioritetsordning – "att betala" är oftast mest tillförlitligt, sen totalt/summa
+  const priorityPatterns = [/att betala/i, /totalt|total/i, /(?<!del)summa/i, /belopp/i]
   let amount = null
-  for(const line of lines){
-    if(keywordRe.test(line)){
-      const numMatch = line.match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
+  for(const pattern of priorityPatterns){
+    for(let i=lines.length-1;i>=0;i--){
+      if(pattern.test(lines[i])){
+        const numMatch = lines[i].match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
+        if(numMatch){ amount = normalizeAmount(numMatch[1]); break }
+      }
+    }
+    if(amount) break
+  }
+  if(!amount){
+    // Fallback: sista rad som ser ut som ett kronbelopp (totalsumman ligger oftast sist)
+    const currencyLines = lines.filter(l=>/kr\b|:-|\bSEK\b/i.test(l))
+    for(let i=currencyLines.length-1;i>=0;i--){
+      const numMatch = currencyLines[i].match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
       if(numMatch){ amount = normalizeAmount(numMatch[1]); break }
     }
   }
@@ -165,7 +212,20 @@ function parseReceiptText(text){
     const allNums = [...text.matchAll(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2}))/g)].map(m=>normalizeAmount(m[1])).filter(n=>n>0)
     if(allNums.length) amount = Math.max(...allNums)
   }
-  return { date, amount }
+
+  const desc = guessDescription(lines)
+
+  return { date, amount, desc }
+}
+
+function guessDescription(lines){
+  for(const line of lines.slice(0,6)){
+    const letters = (line.match(/[A-Za-zÅÄÖåäö]/g)||[]).length
+    if(letters>=3 && line.length<=40 && !/^\d/.test(line) && !/^(kvitto|butik|adress|org\.?nr|kvittonr)/i.test(line)){
+      return line
+    }
+  }
+  return null
 }
 
 function normalizeAmount(s){
@@ -205,7 +265,7 @@ function renderEntries(){
     <div class="rep-summary" style="margin-bottom:12px">
       <div class="rep-row"><span>Totalt registrerat ${entryYear}</span><span>${fmt(totAll)} kr</span></div>
       <div class="rep-row"><span>Utbetalt</span><span>${fmt(totPaid)} kr</span></div>
-      <div class="rep-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>Kvar att betala ut</span><span>${fmt(totUnpaid)} kr</span></div>
+      <div class="rep-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>Oreglerat</span><span>${fmt(totUnpaid)} kr</span></div>
     </div>` : ''
 
   const chips = `<div class="filter-chips">
@@ -233,11 +293,11 @@ function renderEntries(){
       </div>
       ${e.image_url?`<img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-top:6px"/>`:''}
       <div class="entry-bottom">
-        <span class="badge ${paid?'badge-paid':'badge-unpaid'}">${paid?'✅ Betald '+fmtDate(e.paid_date):'⏳ Obetald'}</span>
+        <span class="badge ${paid?'badge-paid':'badge-unpaid'}">${paid?'✅ Reglerat '+fmtDate(e.paid_date):'🟡 Oreglerat'}</span>
         <div class="entry-actions">
           ${paid
             ? `<button class="btn btn-g btn-sm" onclick="unmarkPaid('${e.id}')">Ångra</button>`
-            : `<button class="btn btn-gold btn-sm" onclick="markPaidModal('${e.id}')">Markera betald</button>`}
+            : `<button class="btn btn-gold btn-sm" onclick="markPaidModal('${e.id}')">Markera reglerat</button>`}
           <button class="btn btn-g btn-sm" onclick="editEntry('${e.id}')">✏️</button>
           <button class="btn btn-d btn-sm" onclick="delEntry('${e.id}')">✕</button>
         </div>
@@ -266,9 +326,12 @@ function renderEntries(){
       <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ne-desc" placeholder="Beskriv vad utlägget avser, t.ex. leverantör, vad som köptes och varför"></textarea></div>
       <div class="fr">
         <div class="fg"><label>Belopp (kr)</label><input type="number" id="ne-amount" min="0" step="1"/></div>
-        <div class="fg"><label>Kategori</label><input id="ne-category" list="category-list" placeholder="t.ex. Reparation"/></div>
+        <div class="fg autocomplete-wrap"><label>Kategori</label>
+          <input id="ne-category" placeholder="t.ex. Reparation" autocomplete="off"
+            oninput="showCategorySuggestions('ne')" onfocus="showCategorySuggestions('ne')" onblur="setTimeout(()=>hideCategorySuggestions('ne'),150)"/>
+          <div id="ne-category-suggestions" class="autocomplete-list"></div>
+        </div>
       </div>
-      <datalist id="category-list">${availableCategories().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
       <button class="btn btn-p" style="width:100%" onclick="saveEntry()">💾 Registrera utlägg</button>
       <div id="ne-status" style="margin-top:8px;font-size:13px;color:var(--accent)"></div>
     </div>
@@ -319,9 +382,12 @@ function editEntry(id){
     <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ee-desc">${esc(e.description)}</textarea></div>
     <div class="fr">
       <div class="fg"><label>Belopp (kr)</label><input type="number" id="ee-amount" min="0" step="1" value="${e.amount}"/></div>
-      <div class="fg"><label>Kategori</label><input id="ee-category" list="category-list-edit" value="${esc(e.category||'')}" placeholder="t.ex. Reparation"/></div>
+      <div class="fg autocomplete-wrap"><label>Kategori</label>
+        <input id="ee-category" value="${esc(e.category||'')}" placeholder="t.ex. Reparation" autocomplete="off"
+          oninput="showCategorySuggestions('ee')" onfocus="showCategorySuggestions('ee')" onblur="setTimeout(()=>hideCategorySuggestions('ee'),150)"/>
+        <div id="ee-category-suggestions" class="autocomplete-list"></div>
+      </div>
     </div>
-    <datalist id="category-list-edit">${availableCategories().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
     <div class="btn-row">
       <button class="btn btn-p" onclick="updateEntry('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -449,7 +515,7 @@ function renderReport(){
     </div>
     <div class="rep-divider">
       <div class="rep-row"><span>Utbetalt</span><span>${fmt(totPaid)} kr</span></div>
-      <div class="rep-row" style="font-weight:700"><span>Kvar att betala ut</span><span>${fmt(totAll-totPaid)} kr</span></div>
+      <div class="rep-row" style="font-weight:700"><span>Oreglerat</span><span>${fmt(totAll-totPaid)} kr</span></div>
     </div>
   </div>`
 
@@ -482,8 +548,8 @@ function renderReport(){
       <div class="fam-row"><span>Registrerat</span><span>${fmt(registered)} kr</span></div>
       <div class="fam-row"><span>Utbetalt</span><span>${fmt(paid)} kr</span></div>
       <div class="fam-total">
-        <span>${remaining>0.5?'💸 Kvar att få':'✅ Kvitt'}</span>
-        <span style="color:${remaining>0.5?'var(--gold)':'var(--accent)'}">${fmt(remaining)} kr</span>
+        <span>${remaining>0.5?'🟡 Oreglerat':'✅ Reglerat'}</span>
+        <span style="color:${remaining>0.5?'var(--gold)':'var(--green)'}">${fmt(remaining)} kr</span>
       </div>
     </div>`
   }).join('')
@@ -496,9 +562,9 @@ function renderReport(){
 
 function exportHouseCSV(){
   const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===reportYear)
-  const rows = [['Datum','Person','Kategori','Beskrivning','Belopp','Betald']]
+  const rows = [['Datum','Person','Kategori','Beskrivning','Belopp','Reglerat']]
   yearEntries.forEach(e=>{
-    rows.push([e.date, personName(e.person_id), e.category||'', e.description, fmt(e.amount), e.paid_date?fmtDate(e.paid_date):'Nej'])
+    rows.push([e.date, personName(e.person_id), e.category||'', e.description, fmt(e.amount), e.paid_date?fmtDate(e.paid_date):'Oreglerat'])
   })
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n')
   const a = document.createElement('a')
