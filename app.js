@@ -1,8 +1,9 @@
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
 
-let state = { families:[], periods:[], receipts:[], periodFamilies:[], selectedPeriodId:null }
+let state = { families:[], periods:[], receipts:[], periodFamilies:[], platser:[], selectedPeriodId:null }
 let receiptFilter = null // family_id or null = all
 let activeTab = 'receipts'
+let hideTemporaryFamilies = false
 
 let currentKlanId = null
 let currentKlanName = ''
@@ -151,6 +152,7 @@ async function adminDeleteKlan(id, name){
     await sb.from('periods').delete().in('id',periodIds)
   }
   await sb.from('families').delete().eq('klan_id',id)
+  await sb.from('platser').delete().eq('klan_id',id)
   await sb.from('klaner').delete().eq('id',id)
   await renderAdminPanel()
 }
@@ -158,16 +160,18 @@ async function adminDeleteKlan(id, name){
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   showLoading()
-  const [f,p,r,pf] = await Promise.all([
+  const [f,p,r,pf,pl] = await Promise.all([
     sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
     sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
     sb.from('receipts').select('*').order('date',{ascending:false}),
     sb.from('period_families').select('*'),
+    sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
   ])
   state.families = f.data||[]
   state.periods = p.data||[]
   state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
   state.periodFamilies = pf.data||[]
+  state.platser = pl.data||[]
   const savedPeriodId = localStorage.getItem('kvitton_period')
   if(state.periods.length){
     if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
@@ -213,6 +217,7 @@ function render(tab){
   if(tab==='receipts') el.innerHTML = renderReceipts()
   if(tab==='report')   el.innerHTML = renderReport()
   if(tab==='families') el.innerHTML = renderFamilies()
+  if(tab==='platser')  el.innerHTML = renderPlatser()
   if(tab==='periods')  el.innerHTML = renderPeriods()
   if(tab==='bulk')     renderBulk(el)
   if(tab==='klan')     el.innerHTML = renderKlan()
@@ -226,6 +231,7 @@ function today(){ return new Date().toISOString().slice(0,10) }
 function periodReceipts(){ return state.receipts.filter(r=>r.period_id===state.selectedPeriodId) }
 function periodFamilyRows(){ return state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId) }
 function famName(id){ return (state.families.find(f=>f.id===id)||{}).name||'' }
+function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
 function currentPeriod(){ return state.periods.find(p=>p.id===state.selectedPeriodId) }
 function isLocked(p){ return p && p.status==='avräknad' }
 function closeModal(){ document.getElementById('modal').style.display='none'; document.getElementById('modal').innerHTML='' }
@@ -284,7 +290,7 @@ function setReceiptFilter(famId){
 function renderReceipts(){
   if(!state.periods.length){
     return `<p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">📅 Skapa period</button></div>`
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[5])">📅 Skapa period</button></div>`
   }
   if(!state.selectedPeriodId) return '<p class="empty">Välj en period ovan.</p>'
   const period = currentPeriod()
@@ -347,9 +353,11 @@ function renderReceipts(){
     ? `<button class="btn btn-g" disabled title="Perioden är avräknad">🔒 Registrera</button>`
     : `<button class="btn btn-p" onclick="showTab('bulk', document.querySelectorAll('.tab')[1])">➕ Registrera kvitton</button>`
 
+  const platsTag = period && period.plats_id ? `<div class="card-sub" style="margin-bottom:8px">📍 ${esc(platsName(period.plats_id))}</div>` : ''
+
   return `<div class="sh"><span class="sh-title">${esc((period||{}).name||'')}</span>
     ${addBtn}</div>
-    ${lockedBanner}${sumBar}${chips}${filtSum}${emptyMsg}${rows}`
+    ${platsTag}${lockedBanner}${sumBar}${chips}${filtSum}${emptyMsg}${rows}`
 }
 
 function setReceiptType(type){
@@ -564,11 +572,17 @@ function exportCSV(){
 }
 
 // ── FAMILIES ──────────────────────────────────────────────────────────────────
+function toggleHideTemporary(){ hideTemporaryFamilies = !hideTemporaryFamilies; renderActive() }
+
 function renderFamilies(){
-  const cards = state.families.map(f=>`<div class="card">
+  const visible = hideTemporaryFamilies ? state.families.filter(f=>!f.is_temporary) : state.families
+  const chips = `<div class="filter-chips">
+    <span class="chip ${hideTemporaryFamilies?'on':''}" onclick="toggleHideTemporary()">Dölj tillfälliga</span>
+  </div>`
+  const cards = visible.map(f=>`<div class="card">
     <div class="card-hdr">
       <div>
-        <div class="card-title">${esc(f.name)}</div>
+        <div class="card-title">${esc(f.name)}${f.is_temporary?' <span class="tag">Tillfällig</span>':''}</div>
         <div class="card-sub">Faktor: <strong>${fmt(parseFloat(f.factor||1),2)}</strong></div>
         <div class="card-sub">🍷 ${f.wine_drinkers} vindrickare</div>
       </div>
@@ -579,7 +593,8 @@ function renderFamilies(){
     </div>
   </div>`).join('')
   return `<div class="sh"><span class="sh-title">Familjer</span><button class="btn btn-p" onclick="newFamily()">+ Lägg till</button></div>
-    ${!state.families.length?'<p class="empty">Lägg till familjer för att börja.</p>':cards}`
+    ${chips}
+    ${!visible.length?'<p class="empty">Inga familjer att visa.</p>':cards}`
 }
 
 function familyModal(f=null){
@@ -592,6 +607,7 @@ function familyModal(f=null){
       <div class="fg"><label>Faktor</label><input type="number" id="f-factor" value="${f?f.factor:1}" min="0" step="0.05"/><div style="font-size:12px;color:var(--muted);margin-top:3px">t.ex. 1.75 = två personer varav en betalar 75%</div></div>
     </div>
     <div class="fg"><label>Antal vindrickare</label><input type="number" id="f-wine" value="${f?f.wine_drinkers:0}" min="0" step="1"/></div>
+    <div class="fg"><label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="f-temp" style="width:auto" ${f&&f.is_temporary?'checked':''}/> Tillfällig familj (visas dold som standard)</label></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveFamily('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -603,7 +619,12 @@ function newFamily(){ familyModal() }
 function editFamily(id){ familyModal(state.families.find(f=>f.id===id)) }
 
 async function saveFamily(id){
-  const payload={name:document.getElementById('f-name').value.trim(),factor:parseFloat(document.getElementById('f-factor').value)||1,wine_drinkers:parseInt(document.getElementById('f-wine').value)||0}
+  const payload={
+    name:document.getElementById('f-name').value.trim(),
+    factor:parseFloat(document.getElementById('f-factor').value)||1,
+    wine_drinkers:parseInt(document.getElementById('f-wine').value)||0,
+    is_temporary:document.getElementById('f-temp').checked
+  }
   if(!payload.name){ alert('Ange ett namn.'); return }
   if(id) await sb.from('families').update(payload).eq('id',id)
   else await sb.from('families').insert({...payload, klan_id: currentKlanId})
@@ -613,6 +634,58 @@ async function saveFamily(id){
 async function delFamily(id){
   if(!confirm('Ta bort familj?')) return
   await sb.from('families').delete().eq('id',id)
+  await init()
+}
+
+// ── PLATSER ───────────────────────────────────────────────────────────────────
+function renderPlatser(){
+  const cards = state.platser.map(pl=>{
+    const periodCount = state.periods.filter(p=>p.plats_id===pl.id).length
+    return `<div class="card">
+      <div class="card-hdr">
+        <div>
+          <div class="card-title">${esc(pl.name)}</div>
+          <div class="card-sub">${periodCount} period${periodCount===1?'':'er'}</div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-g btn-sm" onclick="editPlats('${pl.id}')">Redigera</button>
+          <button class="btn btn-d btn-sm" onclick="delPlats('${pl.id}')">Ta bort</button>
+        </div>
+      </div>
+    </div>`
+  }).join('')
+  return `<div class="sh"><span class="sh-title">Ställen</span><button class="btn btn-p" onclick="newPlats()">+ Lägg till</button></div>
+    <div class="hint">Ett ställe (t.ex. Båstad eller Kroatien) kan kopplas till perioder, så ni kan se vilka som är var. Perioder utan ställe fungerar precis som förut.</div>
+    ${!state.platser.length?'<p class="empty">Inga ställen ännu.</p>':cards}`
+}
+
+function platsModal(pl=null){
+  const id=pl?pl.id:''
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">${pl?'Redigera ställe':'Nytt ställe'}</div>
+    <div class="fg"><label>Namn</label><input id="pl-name" value="${esc(pl?pl.name:'')}" placeholder="t.ex. Båstad" autofocus/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="savePlats('${id}')">Spara</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+function newPlats(){ platsModal() }
+function editPlats(id){ platsModal(state.platser.find(p=>p.id===id)) }
+
+async function savePlats(id){
+  const name = document.getElementById('pl-name').value.trim()
+  if(!name){ alert('Ange ett namn.'); return }
+  if(id) await sb.from('platser').update({name}).eq('id',id)
+  else await sb.from('platser').insert({name, klan_id: currentKlanId})
+  closeModal(); await init()
+}
+
+async function delPlats(id){
+  if(!confirm('Ta bort stället? Perioder som var kopplade till det förlorar bara kopplingen, de tas inte bort.')) return
+  await sb.from('platser').delete().eq('id',id)
   await init()
 }
 
@@ -654,13 +727,14 @@ function renderPeriods(){
     const statusBadge = locked
       ? `<span class="badge badge-lock">🔒 Avräknad</span>`
       : `<span class="badge badge-active">Aktiv</span>`
+    const platsBadge = p.plats_id ? `<span class="badge" style="background:var(--accent-light);color:var(--accent)">📍 ${esc(platsName(p.plats_id))}</span>` : ''
     const lockBtn = locked
       ? `<button class="btn btn-g btn-sm" onclick="unlockPeriod('${p.id}')">🔓 Lås upp</button>`
       : `<button class="btn btn-w btn-sm" onclick="lockPeriod('${p.id}')">🔒 Avräkna</button>`
     return `<div class="card">
       <div class="card-hdr">
         <div style="flex:1">
-          <div class="card-title">${esc(p.name)} ${statusBadge}</div>
+          <div class="card-title">${esc(p.name)} ${statusBadge} ${platsBadge}</div>
           <div class="card-sub">${new Date(p.starts_at).toLocaleDateString('sv-SE')} – ${new Date(p.ends_at).toLocaleDateString('sv-SE')}</div>
           ${statsHtml}
           <div class="tags" style="margin-top:6px">${famDayTags}</div>
@@ -691,6 +765,7 @@ async function unlockPeriod(id){
 }
 
 function newPeriod(){
+  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}">${esc(pl.name)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Ny period</div>
@@ -699,6 +774,7 @@ function newPeriod(){
       <div class="fg"><label>Startdatum</label><input type="date" id="p-start" value="${today()}"/></div>
       <div class="fg"><label>Slutdatum</label><input type="date" id="p-end" value="${today()}"/></div>
     </div>
+    <div class="fg"><label>Ställe (valfritt)</label><select id="p-plats">${platsOpts}</select></div>
     <div class="fg"><label>Vilka familjer är med?</label>
       <div class="family-check-list" style="margin-top:6px">
         ${state.families.map(f=>`
@@ -726,7 +802,8 @@ async function savePeriod(){
   if(!name){ alert('Ange ett namn.'); return }
   const checked = state.families.filter(f=>document.getElementById('fc-'+f.id)?.checked)
   if(!checked.length){ alert('Välj minst en familj.'); return }
-  const {data:p}=await sb.from('periods').insert({name,starts_at:document.getElementById('p-start').value,ends_at:document.getElementById('p-end').value,klan_id:currentKlanId,status:'aktiv'}).select().single()
+  const platsId = document.getElementById('p-plats').value || null
+  const {data:p}=await sb.from('periods').insert({name,starts_at:document.getElementById('p-start').value,ends_at:document.getElementById('p-end').value,klan_id:currentKlanId,status:'aktiv',plats_id:platsId}).select().single()
   if(p){
     const rows = checked.map(f=>({period_id:p.id,family_id:f.id,days:0,guest_days:0,day_states:JSON.stringify([])}))
     await sb.from('period_families').insert(rows)
@@ -843,6 +920,7 @@ function editPeriodDates(periodId){
   if(!p) return
   const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
   const existingFamIds = existing.map(e=>e.family_id)
+  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===p.plats_id?'selected':''}>${esc(pl.name)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Redigera period</div>
@@ -851,6 +929,7 @@ function editPeriodDates(periodId){
       <div class="fg"><label>Startdatum</label><input type="date" id="ep-start" value="${p.starts_at}"/></div>
       <div class="fg"><label>Slutdatum</label><input type="date" id="ep-end" value="${p.ends_at}"/></div>
     </div>
+    <div class="fg"><label>Ställe (valfritt)</label><select id="ep-plats">${platsOpts}</select></div>
     <div class="fg"><label>Familjer i perioden</label>
       <div class="family-check-list" style="margin-top:6px">
         ${state.families.map(f=>{
@@ -881,7 +960,8 @@ async function savePeriodDates(periodId){
   await sb.from('periods').update({
     name,
     starts_at: document.getElementById('ep-start').value,
-    ends_at: document.getElementById('ep-end').value
+    ends_at: document.getElementById('ep-end').value,
+    plats_id: document.getElementById('ep-plats').value || null
   }).eq('id', periodId)
 
   const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
@@ -1020,7 +1100,7 @@ function renderBulk(el){
 
   if(!state.periods.length){
     el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">📅 Skapa period</button></div>`
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[5])">📅 Skapa period</button></div>`
     return
   }
   if(!activePeriods.length){
