@@ -4,6 +4,7 @@
   --accent:#35577a;--accent-light:#dbe7f0;--accent-muted:#5b83a8;
   --danger:#c1121f;--danger-light:#ffe5e5;
   --gold:#a9791f;--gold-light:#f7edd8;
+  --green:#2f7d4f;--green-light:#dcefe1;
   --text:#1a1a1a;--muted:#6b6b6b;
   --r:10px;--shadow:0 1px 4px rgba(0,0,0,.08)
 }
@@ -42,7 +43,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* Badges */
 .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:500}
 .badge-unpaid{background:var(--gold-light);color:var(--gold)}
-.badge-paid{background:var(--accent-light);color:var(--accent)}
+.badge-paid{background:var(--green-light);color:var(--green)}
 /* Forms */
 .fg{margin-bottom:13px}
 .fg label{display:block;font-size:13px;font-weight:500;color:var(--muted);margin-bottom:3px}
@@ -85,3 +86,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent)}
 .gate-box h2{font-size:19px;margin-bottom:6px}
 .gate-box p{font-size:13px;color:var(--muted);margin-bottom:18px}
 .gate-status{font-size:13px;color:var(--accent);margin-top:10px;min-height:16px}
+/* Kategori-typeahead */
+.autocomplete-wrap{position:relative}
+.autocomplete-list{display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);max-height:160px;overflow-y:auto;z-index:50;margin-top:2px}
+.autocomplete-item{padding:9px 11px;font-size:14px;cursor:pointer}
+.autocomplete-item:hover,.autocomplete-item:active{background:var(--accent-light)}
