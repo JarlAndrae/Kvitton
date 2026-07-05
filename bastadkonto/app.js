@@ -57,6 +57,27 @@ async function enterApp(){
   hideGate()
   document.getElementById('mainApp').style.display=''
   await init()
+  updateSwitcher()
+  const params = new URLSearchParams(location.search)
+  const wanted = params.get('tab')
+  if(wanted && document.getElementById('tab-'+wanted)){
+    const btn = document.querySelector('.tab[data-tab="'+wanted+'"]')
+    showTab(wanted, btn)
+  }
+}
+
+// ── VÄXLINGSMENY (Kvitton / Planering / Båstadkonto / Projekt) ────────────────
+function updateSwitcher(){
+  const current = activeTab==='projects' ? 'projekt' : 'bastadkonto'
+  const items = [
+    {key:'kvitton', icon:'🧾', label:'Kvitton', href:'../'},
+    {key:'planering', icon:'🗓️', label:'Planering', href:'../planering/'},
+    {key:'bastadkonto', icon:'🏠', label:'Båstadkonto', href:'./'},
+    {key:'projekt', icon:'✅', label:'Projekt', href:'./?tab=projects'},
+  ]
+  const el = document.getElementById('appSwitcher')
+  if(!el) return
+  el.innerHTML = items.map(it=>`<a class="switch-item ${it.key===current?'on':''}" href="${it.href}">${it.icon} ${it.label}</a>`).join('')
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -82,6 +103,7 @@ function showTab(name,btn){
   if(btn) btn.classList.add('on')
   activeTab=name
   renderActive()
+  updateSwitcher()
 }
 
 function renderActive(){ render(activeTab) }
