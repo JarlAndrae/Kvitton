@@ -678,14 +678,17 @@ function editPlats(id){ platsModal(state.platser.find(p=>p.id===id)) }
 async function savePlats(id){
   const name = document.getElementById('pl-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  if(id) await sb.from('platser').update({name}).eq('id',id)
-  else await sb.from('platser').insert({name, klan_id: currentKlanId})
+  const { error } = id
+    ? await sb.from('platser').update({name}).eq('id',id)
+    : await sb.from('platser').insert({name, klan_id: currentKlanId})
+  if(error){ alert('Kunde inte spara stället: '+error.message); return }
   closeModal(); await init()
 }
 
 async function delPlats(id){
   if(!confirm('Ta bort stället? Perioder som var kopplade till det förlorar bara kopplingen, de tas inte bort.')) return
-  await sb.from('platser').delete().eq('id',id)
+  const { error } = await sb.from('platser').delete().eq('id',id)
+  if(error){ alert('Kunde inte ta bort stället: '+error.message); return }
   await init()
 }
 
