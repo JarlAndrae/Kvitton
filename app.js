@@ -9,23 +9,6 @@ let calendarPlatsId = null
 let currentKlanId = null
 let currentKlanName = ''
 
-// ── GLOBAL FELHANTERING ────────────────────────────────────────────────────────
-// Istället för att appen bara hänger sig/kraschar tyst vid ett oväntat fel,
-// visas felet i en banner högst upp så det går att felsöka/rapportera.
-function showError(msg){
-  let el = document.getElementById('errorBanner')
-  if(!el){
-    el = document.createElement('div')
-    el.id = 'errorBanner'
-    document.body.prepend(el)
-  }
-  el.style.cssText = 'position:sticky;top:0;z-index:9999;background:#c1121f;color:#fff;padding:10px 14px;font-size:13px;display:flex;gap:10px;align-items:flex-start'
-  el.innerHTML = `<span style="flex:1">⚠️ Ett fel uppstod: ${esc(String(msg).slice(0,300))}</span><button onclick="this.parentElement.style.display='none'" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer;line-height:1;flex-shrink:0">✕</button>`
-  el.style.display='flex'
-}
-window.addEventListener('error', e => showError(e.message || 'Okänt fel'))
-window.addEventListener('unhandledrejection', e => showError((e.reason && e.reason.message) || String(e.reason) || 'Okänt fel (promise)'))
-
 // ── KLAN GATE (lösenordsbaserad) ────────────────────────────────────────────
 function boot(){
   const params = new URLSearchParams(window.location.search)
@@ -178,38 +161,31 @@ async function adminDeleteKlan(id, name){
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   showLoading()
-  try{
-    const [f,p,r,pf,pl,vi] = await Promise.all([
-      sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
-      sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
-      sb.from('receipts').select('*').order('date',{ascending:false}),
-      sb.from('period_families').select('*'),
-      sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
-      sb.from('vistelser').select('*').order('starts_at'),
-    ])
-    state.families = f.data||[]
-    state.periods = p.data||[]
-    state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
-    state.periodFamilies = pf.data||[]
-    state.platser = pl.data||[]
-    const platsIds = new Set(state.platser.map(pl=>pl.id))
-    state.vistelser = (vi.data||[]).filter(v => platsIds.has(v.plats_id))
-    const savedPeriodId = localStorage.getItem('kvitton_period')
-    if(state.periods.length){
-      if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
-        state.selectedPeriodId = savedPeriodId
-      } else if(!state.selectedPeriodId){
-        state.selectedPeriodId = state.periods[0].id
-      }
+  const [f,p,r,pf,pl,vi] = await Promise.all([
+    sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
+    sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
+    sb.from('receipts').select('*').order('date',{ascending:false}),
+    sb.from('period_families').select('*'),
+    sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
+    sb.from('vistelser').select('*').order('starts_at'),
+  ])
+  state.families = f.data||[]
+  state.periods = p.data||[]
+  state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
+  state.periodFamilies = pf.data||[]
+  state.platser = pl.data||[]
+  const platsIds = new Set(state.platser.map(pl=>pl.id))
+  state.vistelser = (vi.data||[]).filter(v => platsIds.has(v.plats_id))
+  const savedPeriodId = localStorage.getItem('kvitton_period')
+  if(state.periods.length){
+    if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
+      state.selectedPeriodId = savedPeriodId
+    } else if(!state.selectedPeriodId){
+      state.selectedPeriodId = state.periods[0].id
     }
-    renderPeriodSelect()
-    renderActive()
-  }catch(err){
-    console.error(err)
-    showError(err.message || String(err))
-    const el = document.getElementById('tab-'+activeTab)
-    if(el) el.innerHTML = '<p class="empty">Kunde inte ladda data. Felmeddelandet syns högst upp.</p>'
   }
+  renderPeriodSelect()
+  renderActive()
 }
 
 function showLoading(){ const el=document.getElementById('tab-'+activeTab); if(el) el.innerHTML='<div class="loading">Laddar…</div>' }
@@ -242,20 +218,14 @@ function renderActive(){ render(activeTab) }
 
 function render(tab){
   const el = document.getElementById('tab-'+tab)
-  try{
-    if(tab==='receipts') el.innerHTML = renderReceipts()
-    if(tab==='report')   el.innerHTML = renderReport()
-    if(tab==='families') el.innerHTML = renderFamilies()
-    if(tab==='platser')  el.innerHTML = renderPlatser()
-    if(tab==='kalender') el.innerHTML = renderKalender()
-    if(tab==='periods')  el.innerHTML = renderPeriods()
-    if(tab==='bulk')     renderBulk(el)
-    if(tab==='klan')     el.innerHTML = renderKlan()
-  }catch(err){
-    console.error(err)
-    if(el) el.innerHTML = '<p class="empty">Något gick fel när den här fliken skulle visas. Felmeddelandet syns högst upp.</p>'
-    showError(err.message || String(err))
-  }
+  if(tab==='receipts') el.innerHTML = renderReceipts()
+  if(tab==='report')   el.innerHTML = renderReport()
+  if(tab==='families') el.innerHTML = renderFamilies()
+  if(tab==='platser')  el.innerHTML = renderPlatser()
+  if(tab==='kalender') el.innerHTML = renderKalender()
+  if(tab==='periods')  el.innerHTML = renderPeriods()
+  if(tab==='bulk')     renderBulk(el)
+  if(tab==='klan')     el.innerHTML = renderKlan()
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
