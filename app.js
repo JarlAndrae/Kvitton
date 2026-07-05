@@ -5,6 +5,7 @@ let receiptFilter = null // family_id or null = all
 let activeTab = 'receipts'
 let hideTemporaryFamilies = false
 let calendarPlatsId = null
+let calendarChartMode = 'bar'
 
 let currentKlanId = null
 let currentKlanName = ''
@@ -264,6 +265,18 @@ function fmt(n,d=0){ return Number(n||0).toLocaleString('sv-SE',{minimumFraction
 function fmtDate(d){ return new Date(d).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}) }
 function fmtDateY(d){ return new Date(d).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric'}) }
 function isoAdd(dateStr, days){ const [y,m,d]=dateStr.split('-').map(Number); const dt=new Date(Date.UTC(y,m-1,d)); dt.setUTCDate(dt.getUTCDate()+days); return dt.toISOString().slice(0,10) }
+function toUTCms(dateStr){ const [y,m,d]=dateStr.split('-').map(Number); return Date.UTC(y,m-1,d) }
+function dayOfWeekUTC(dateStr){ return new Date(toUTCms(dateStr)).getUTCDay() }
+function dayDiff(a,b){ return Math.round((toUTCms(b)-toUTCms(a))/86400000) }
+function isoWeekNumber(dateStr){
+  const date = new Date(toUTCms(dateStr))
+  const dayNum = (date.getUTCDay()+6)%7
+  date.setUTCDate(date.getUTCDate()-dayNum+3)
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(),0,4))
+  const firstDayNum = (firstThursday.getUTCDay()+6)%7
+  firstThursday.setUTCDate(firstThursday.getUTCDate()-firstDayNum+3)
+  return 1 + Math.round((date-firstThursday)/(7*24*3600*1000))
+}
 function today(){ return new Date().toISOString().slice(0,10) }
 function periodReceipts(){ return state.receipts.filter(r=>r.period_id===state.selectedPeriodId) }
 function periodFamilyRows(){ return state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId) }
@@ -736,6 +749,7 @@ async function delPlats(id){
 // ── KALENDER / VISTELSER ──────────────────────────────────────────────────────
 // Vistelser är planering – helt fristående från avräkning/mandagar.
 function setCalendarPlats(id){ calendarPlatsId = id; renderActive() }
+function setCalendarChartMode(mode){ calendarChartMode = mode; renderActive() }
 
 function computeOverlapSegments(vistelser){
   if(!vistelser.length) return []
@@ -782,6 +796,13 @@ function renderOccupancyChart(days){
   const maxCount = Math.max(...days.map(d=>d.count), 1)
   const w = 700, h = 110, padBottom = 18, padTop = 8
   const barW = w / days.length
+  const weekMarks = days.map((d,i)=>{
+    if(dayOfWeekUTC(d.date)!==1) return ''
+    const x = i*barW
+    const wn = isoWeekNumber(d.date)
+    return `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-padBottom}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+      <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${wn}</text>`
+  }).join('')
   const bars = days.map((d,i)=>{
     const barH = maxCount>0 ? (d.count/maxCount)*(h-padBottom-padTop) : 0
     const x = i*barW
@@ -793,9 +814,58 @@ function renderOccupancyChart(days){
     <div style="font-size:12px;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between">
       <span>🛏️ Beläggning (personer/dag)</span><span>Max ${maxCount}</span>
     </div>
-    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:110px;display:block">${bars}</svg>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:110px;display:block">${weekMarks}${bars}</svg>
     <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px">
       <span>${esc(fmtDate(days[0].date))}</span><span>${esc(fmtDate(days[days.length-1].date))}</span>
+    </div>
+  </div>`
+}
+
+function renderTimelineChart(vistelser){
+  if(!vistelser.length) return ''
+  const familyIds = Array.from(new Set(vistelser.map(v=>v.family_id)))
+  const minDate = vistelser.reduce((m,v)=>v.starts_at<m?v.starts_at:m, vistelser[0].starts_at)
+  const maxDate = vistelser.reduce((m,v)=>v.ends_at>m?v.ends_at:m, vistelser[0].ends_at)
+  const totalDays = Math.max(dayDiff(minDate,maxDate)+1, 1)
+  const w = 700, labelW = 92, padTop = 6, padBottom = 20, rowH = 32
+  const chartW = w - labelW
+  const h = padTop + familyIds.length*rowH + padBottom
+  const pxPerDay = chartW/totalDays
+  const colors = ['var(--accent)','var(--accent-muted)','var(--wine)','var(--danger)']
+
+  const rows = familyIds.map((famId,rowIdx)=>{
+    const y = padTop + rowIdx*rowH
+    const label = `<text x="0" y="${(y+rowH/2+4).toFixed(1)}" font-size="12" fill="var(--text)">${esc(famName(famId))}</text>`
+    const bars = vistelser.filter(v=>v.family_id===famId).map(v=>{
+      const x = labelW + dayDiff(minDate,v.starts_at)*pxPerDay
+      const bw = Math.max((dayDiff(v.starts_at,v.ends_at)+1)*pxPerDay - 2, 3)
+      const color = colors[rowIdx % colors.length]
+      const title = `${famName(famId)}: ${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)}`
+      return `<rect x="${x.toFixed(1)}" y="${(y+4).toFixed(1)}" width="${bw.toFixed(1)}" height="${(rowH-10).toFixed(1)}" rx="4" fill="${color}"><title>${esc(title)}</title></rect>`
+    }).join('')
+    const rowLine = `<line x1="${labelW}" y1="${(y+rowH).toFixed(1)}" x2="${w}" y2="${(y+rowH).toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
+    return label+bars+rowLine
+  }).join('')
+
+  let weekMarks = ''
+  let cur = minDate, idx = 0, guard = 0
+  while(cur<=maxDate && guard<3660){
+    guard++
+    if(dayOfWeekUTC(cur)===1){
+      const x = labelW + idx*pxPerDay
+      const wn = isoWeekNumber(cur)
+      weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-padBottom}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+        <text x="${(x+2).toFixed(1)}" y="${h-6}" font-size="9" fill="var(--muted)">v.${wn}</text>`
+    }
+    cur = isoAdd(cur,1)
+    idx++
+  }
+
+  return `<div class="card" style="padding:12px 14px 8px;margin-bottom:12px;overflow-x:auto">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">📅 Tidslinje per familj</div>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:480px;height:${h}px;display:block">${weekMarks}${rows}</svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px;padding-left:${labelW}px">
+      <span>${esc(fmtDate(minDate))}</span><span>${esc(fmtDate(maxDate))}</span>
     </div>
   </div>`
 }
@@ -839,10 +909,19 @@ function renderKalender(){
     </div>
   </div>`).join('')
 
+  const chartToggle = `<div class="btn-row" style="margin-bottom:8px">
+    <button class="btn ${calendarChartMode==='bar'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('bar')">📊 Diagram</button>
+    <button class="btn ${calendarChartMode==='timeline'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('timeline')">📅 Tidslinje</button>
+  </div>`
+  const chartHtml = calendarChartMode==='timeline'
+    ? renderTimelineChart(vistelser)
+    : renderOccupancyChart(computeDailyOccupancy(vistelser))
+
   return `<div class="sh"><span class="sh-title">Kalender</span><button class="btn btn-p" onclick="newVistelse()">+ Anmäl vistelse</button></div>
     <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
     <div class="hint">Vistelser är planering – helt separat från avräkning och mandagar. Anmäl när ni tänker vara i ${esc(platsName(calendarPlatsId))}, så syns det direkt om flera familjer är där samtidigt.</div>
-    ${renderOccupancyChart(computeDailyOccupancy(vistelser))}
+    ${chartToggle}
+    ${vistelser.length ? chartHtml : ''}
     <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Översikt</span></div>
     ${segmentHtml}
     <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Alla vistelser</span></div>
