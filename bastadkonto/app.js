@@ -5,6 +5,7 @@ let activeTab = 'entries'
 let entryYear = new Date().getFullYear()
 let entryPersonFilter = null
 let entryCategoryFilter = null
+let entryStatusFilter = null
 let reportYear = new Date().getFullYear()
 let selectedPhotoFile = null
 let projectStatusFilter = null
@@ -223,7 +224,6 @@ function parseReceiptText(text){
 
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean)
 
-  // Sök i prioritetsordning – "att betala" är oftast mest tillförlitligt, sen totalt/summa
   const priorityPatterns = [/att betala/i, /totalt|total/i, /(?<!del)summa/i, /belopp/i]
   let amount = null
   for(const pattern of priorityPatterns){
@@ -236,7 +236,6 @@ function parseReceiptText(text){
     if(amount) break
   }
   if(!amount){
-    // Fallback: sista rad som ser ut som ett kronbelopp (totalsumman ligger oftast sist)
     const currencyLines = lines.filter(l=>/kr\b|:-|\bSEK\b/i.test(l))
     for(let i=currencyLines.length-1;i>=0;i--){
       const numMatch = currencyLines[i].match(/(\d{1,3}(?:[ .]\d{3})*(?:[,.]\d{2})?)/)
@@ -291,6 +290,7 @@ function renderEntries(){
   const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===entryYear)
   let filtered = entryPersonFilter ? yearEntries.filter(e=>e.person_id===entryPersonFilter) : yearEntries
   filtered = entryCategoryFilter ? filtered.filter(e=>e.category===entryCategoryFilter) : filtered
+  filtered = entryStatusFilter ? filtered.filter(e=> entryStatusFilter==='paid' ? !!e.paid_date : !e.paid_date) : filtered
 
   const totAll = yearEntries.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
   const totPaid = yearEntries.filter(e=>e.paid_date).reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
@@ -303,7 +303,13 @@ function renderEntries(){
       <div class="rep-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>Oreglerat</span><span>${fmt(totUnpaid)} kr</span></div>
     </div>` : ''
 
-  const chips = `<div class="filter-chips">
+  const statusChips = `<div class="filter-chips">
+    <span class="chip ${!entryStatusFilter?'on':''}" onclick="setEntryStatusFilter(null)">Alla</span>
+    <span class="chip ${entryStatusFilter==='unpaid'?'on':''}" onclick="setEntryStatusFilter('unpaid')">🟡 Oreglerat</span>
+    <span class="chip ${entryStatusFilter==='paid'?'on':''}" onclick="setEntryStatusFilter('paid')">✅ Reglerat</span>
+  </div>`
+
+  const personChips = `<div class="filter-chips">
     <span class="chip ${!entryPersonFilter?'on':''}" onclick="setEntryFilter(null)">Alla</span>
     ${state.people.map(p=>`<span class="chip ${entryPersonFilter===p.id?'on':''}" onclick="setEntryFilter('${p.id}')">${esc(p.name)}</span>`).join('')}
   </div>`
@@ -316,70 +322,78 @@ function renderEntries(){
     </select>
   </div>` : ''
 
-  const projectOptions = state.projects.map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('')
-
   const rows = filtered.map(e=>{
     const paid = !!e.paid_date
-    return `<div class="entry-row">
-      <div class="entry-top">
-        <div>
-          <div class="entry-desc">${esc(e.description)}</div>
-          <div class="entry-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}${e.category?' · '+esc(e.category):''}</div>
-          ${e.project_id?`<div class="entry-sub">✅ ${esc(projectName(e.project_id))}</div>`:''}
-        </div>
-        <div class="entry-amt">${fmt(e.amount)} kr</div>
+    return `<div class="slim-row">
+      <div style="flex:1;min-width:0">
+        <div class="slim-desc">${esc(e.description)}</div>
+        <div class="slim-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}${e.category?' · '+esc(e.category):''}${e.project_id?' · ✅ '+esc(projectName(e.project_id)):''}</div>
       </div>
-      ${e.image_url?`<img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;margin-top:6px"/>`:''}
-      <div class="entry-bottom">
-        <span class="badge ${paid?'badge-paid':'badge-unpaid'}">${paid?'✅ Reglerat '+fmtDate(e.paid_date):'🟡 Oreglerat'}</span>
-        <div class="entry-actions">
-          ${paid
-            ? `<button class="btn btn-g btn-sm" onclick="unmarkPaid('${e.id}')">Ångra</button>`
-            : `<button class="btn btn-gold btn-sm" onclick="markPaidModal('${e.id}')">Markera reglerat</button>`}
-          <button class="btn btn-g btn-sm" onclick="editEntry('${e.id}')">✏️</button>
-          <button class="btn btn-d btn-sm" onclick="delEntry('${e.id}')">✕</button>
-        </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="slim-amt">${fmt(e.amount)} kr</div>
+        <span class="badge ${paid?'badge-paid':'badge-unpaid'}" style="margin-top:2px">${paid?'✅ Reglerat':'🟡 Oreglerat'}</span>
+      </div>
+      <div class="slim-actions">
+        ${e.image_url?`<button class="btn btn-g btn-sm" onclick="lightbox('${esc(e.image_url)}')" title="Visa kvitto">📷</button>`:''}
+        ${paid
+          ? `<button class="btn btn-g btn-sm" onclick="unmarkPaid('${e.id}')" title="Ångra">↩</button>`
+          : `<button class="btn btn-gold btn-sm" onclick="markPaidModal('${e.id}')" title="Markera reglerat">💰</button>`}
+        <button class="btn btn-g btn-sm" onclick="editEntry('${e.id}')">✏️</button>
+        <button class="btn btn-d btn-sm" onclick="delEntry('${e.id}')">✕</button>
       </div>
     </div>`
   }).join('')
 
   const emptyMsg = yearEntries.length===0
     ? `<p class="empty">Inga utlägg registrerade för ${entryYear} ännu.</p>`
-    : filtered.length===0 ? '<p class="empty">Inga utlägg för den här personen.</p>' : ''
+    : filtered.length===0 ? '<p class="empty">Inga utlägg matchar filtret.</p>' : ''
 
   return `<div class="sh">
       <span class="sh-title">Utlägg</span>
-      <select style="width:auto" id="entry-year-sel" onchange="setEntryYear(this.value)">${yearOpts}</select>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select style="width:auto" id="entry-year-sel" onchange="setEntryYear(this.value)">${yearOpts}</select>
+        <button class="btn btn-p btn-sm" onclick="newEntryModal()">+ Registrera</button>
+      </div>
     </div>
-    <div class="card" style="margin-bottom:12px">
-      <div class="fr">
-        <div class="fg"><label>Vem</label><select id="ne-person"><option value="">– välj –</option>${state.people.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>Datum</label><input type="date" id="ne-date" value="${today()}"/></div>
-      </div>
-      <div class="fg"><label>Foto på kvittot (valfritt – försöker läsa av belopp/datum)</label>
-        <input type="file" id="ne-photo" accept="image/*" capture="environment" onchange="handlePhotoSelect(event,'ne')"/>
-        <div id="ne-photo-preview"></div>
-        <div id="ne-ocr-status" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
-      </div>
-      <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ne-desc" placeholder="Beskriv vad utlägget avser, t.ex. leverantör, vad som köptes och varför"></textarea></div>
-      <div class="fr">
-        <div class="fg"><label>Belopp (kr)</label><input type="number" id="ne-amount" min="0" step="1"/></div>
-        <div class="fg autocomplete-wrap"><label>Kategori</label>
-          <input id="ne-category" placeholder="t.ex. Reparation" autocomplete="off"
-            oninput="showCategorySuggestions('ne')" onfocus="showCategorySuggestions('ne')" onblur="setTimeout(()=>hideCategorySuggestions('ne'),150)"/>
-          <div id="ne-category-suggestions" class="autocomplete-list"></div>
-        </div>
-      </div>
-      ${state.projects.length ? `<div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ne-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>` : ''}
-      <button class="btn btn-p" style="width:100%" onclick="saveEntry()">💾 Registrera utlägg</button>
-      <div id="ne-status" style="margin-top:8px;font-size:13px;color:var(--accent)"></div>
-    </div>
-    ${sumBar}${chips}${categoryFilterHtml}${emptyMsg}${rows}`
+    ${sumBar}${statusChips}${personChips}${categoryFilterHtml}${emptyMsg}${rows}`
 }
 
 function setEntryYear(y){ entryYear=parseInt(y); renderActive() }
 function setEntryFilter(id){ entryPersonFilter = entryPersonFilter===id ? null : id; renderActive() }
 function setCategoryFilter(cat){ entryCategoryFilter = cat || null; renderActive() }
+function setEntryStatusFilter(status){ entryStatusFilter = entryStatusFilter===status ? null : status; renderActive() }
+
+function newEntryModal(){
+  const projectOptions = state.projects.map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('')
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Registrera utlägg</div>
+    <div class="fr">
+      <div class="fg"><label>Vem</label><select id="ne-person"><option value="">– välj –</option>${state.people.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>Datum</label><input type="date" id="ne-date" value="${today()}"/></div>
+    </div>
+    <div class="fg"><label>Foto på kvittot (valfritt – försöker läsa av belopp/datum)</label>
+      <input type="file" id="ne-photo" accept="image/*" capture="environment" onchange="handlePhotoSelect(event,'ne')"/>
+      <div id="ne-photo-preview"></div>
+      <div id="ne-ocr-status" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+    </div>
+    <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ne-desc" placeholder="Beskriv vad utlägget avser, t.ex. leverantör, vad som köptes och varför"></textarea></div>
+    <div class="fr">
+      <div class="fg"><label>Belopp (kr)</label><input type="number" id="ne-amount" min="0" step="1"/></div>
+      <div class="fg autocomplete-wrap"><label>Kategori</label>
+        <input id="ne-category" placeholder="t.ex. Reparation" autocomplete="off"
+          oninput="showCategorySuggestions('ne')" onfocus="showCategorySuggestions('ne')" onblur="setTimeout(()=>hideCategorySuggestions('ne'),150)"/>
+        <div id="ne-category-suggestions" class="autocomplete-list"></div>
+      </div>
+    </div>
+    ${state.projects.length ? `<div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ne-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>` : ''}
+    <div id="ne-status" style="margin-bottom:8px;font-size:13px;color:var(--accent)"></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveEntry()">💾 Registrera utlägg</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
 
 async function saveEntry(){
   const personId = document.getElementById('ne-person').value
@@ -403,10 +417,8 @@ async function saveEntry(){
   await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, category, image_url:imageUrl, paid_date:null, project_id:projectId })
   selectedPhotoFile = null
   entryYear = new Date(date).getFullYear()
+  closeModal()
   await init()
-  showTab('entries', document.querySelector('.tab'))
-  const s = document.getElementById('ne-status'); if(s) s.textContent='✅ Sparat!'
-  setTimeout(()=>{ const s2=document.getElementById('ne-status'); if(s2) s2.textContent='' }, 2500)
 }
 
 function editEntry(id){
@@ -648,7 +660,6 @@ function renderReport(){
     </div>
   </div>`
 
-  // Kompakt sammanställning per kategori – till för bokföring/redovisning
   const catTotals = {}
   yearEntries.forEach(e=>{
     const cat = e.category || 'Okategoriserat'
@@ -663,7 +674,6 @@ function renderReport(){
     <div class="fam-total"><span>Totalt</span><span>${fmt(totAll)} kr</span></div>
   </div>`
 
-  // Sammanställning per projekt – bara de med minst ett kopplat utlägg detta år
   const projTotals = {}
   yearEntries.forEach(e=>{
     if(!e.project_id) return
