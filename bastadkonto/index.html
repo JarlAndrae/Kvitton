@@ -14,18 +14,18 @@
 <div id="authGate"></div>
 
 <div class="app" id="mainApp" style="display:none">
+  <nav class="app-switcher" id="appSwitcher"></nav>
   <header class="hdr">
     <h1>Båstadkonto</h1>
     <div class="hdr-right">
-      <a href="../" class="btn btn-g btn-sm" style="text-decoration:none">🧾 Kvittodelning</a>
       <button class="btn btn-g btn-sm" onclick="logout()">Logga ut</button>
     </div>
   </header>
   <nav class="tabs">
-    <button class="tab on" onclick="showTab('entries',this)">💰 Utlägg</button>
-    <button class="tab" onclick="showTab('projects',this)">✅ Projekt</button>
-    <button class="tab" onclick="showTab('people',this)">👤 Personer</button>
-    <button class="tab" onclick="showTab('report',this)">📊 Rapport</button>
+    <button class="tab on" data-tab="entries" onclick="showTab('entries',this)">💰 Utlägg</button>
+    <button class="tab" data-tab="projects" onclick="showTab('projects',this)">✅ Projekt</button>
+    <button class="tab" data-tab="people" onclick="showTab('people',this)">👤 Personer</button>
+    <button class="tab" data-tab="report" onclick="showTab('report',this)">📊 Rapport</button>
   </nav>
   <main class="main">
     <div id="tab-entries"></div>
