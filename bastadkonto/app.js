@@ -1,14 +1,20 @@
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
-let state = { people:[], entries:[] }
+let state = { people:[], entries:[], projects:[] }
 let activeTab = 'entries'
 let entryYear = new Date().getFullYear()
 let entryPersonFilter = null
 let entryCategoryFilter = null
 let reportYear = new Date().getFullYear()
 let selectedPhotoFile = null
+let projectStatusFilter = null
 
 const DEFAULT_CATEGORIES = ['Reparation','Trädgård','El & Vatten','Städning','Inventarier/Möbler','Försäkring','Övrigt']
+const PROJECT_STATUSES = [
+  { value:'ej_paborjat', label:'Ej påbörjat', cls:'badge-notstarted' },
+  { value:'pagaende',    label:'Pågående',    cls:'badge-progress' },
+  { value:'klart',       label:'Klart',       cls:'badge-paid' },
+]
 
 // ── GATE ──────────────────────────────────────────────────────────────────────
 function boot(){
@@ -56,12 +62,14 @@ async function enterApp(){
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init(){
   showLoading()
-  const [p,e] = await Promise.all([
+  const [p,e,pr] = await Promise.all([
     sb.from('house_people').select('*').order('name'),
-    sb.from('house_entries').select('*').order('date',{ascending:false})
+    sb.from('house_entries').select('*').order('date',{ascending:false}),
+    sb.from('house_projects').select('*').order('created_at',{ascending:false})
   ])
   state.people = p.data||[]
   state.entries = e.data||[]
+  state.projects = pr.data||[]
   renderActive()
 }
 
@@ -80,9 +88,10 @@ function renderActive(){ render(activeTab) }
 
 function render(tab){
   const el = document.getElementById('tab-'+tab)
-  if(tab==='entries') el.innerHTML = renderEntries()
-  if(tab==='people')  el.innerHTML = renderPeople()
-  if(tab==='report')  el.innerHTML = renderReport()
+  if(tab==='entries')  el.innerHTML = renderEntries()
+  if(tab==='people')   el.innerHTML = renderPeople()
+  if(tab==='report')   el.innerHTML = renderReport()
+  if(tab==='projects') el.innerHTML = renderProjects()
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -104,6 +113,10 @@ function availableCategories(){
   DEFAULT_CATEGORIES.forEach(c=>used.add(c))
   return Array.from(used).sort()
 }
+
+function projectById(id){ return state.projects.find(p=>p.id===id) }
+function projectName(id){ return id ? (projectById(id)||{}).title||'(borttaget projekt)' : '' }
+function projectStatusInfo(status){ return PROJECT_STATUSES.find(s=>s.value===status) || PROJECT_STATUSES[0] }
 
 function showCategorySuggestions(prefix){
   const input = document.getElementById(prefix+'-category')
@@ -281,6 +294,8 @@ function renderEntries(){
     </select>
   </div>` : ''
 
+  const projectOptions = state.projects.map(p=>`<option value="${p.id}">${esc(p.title)}</option>`).join('')
+
   const rows = filtered.map(e=>{
     const paid = !!e.paid_date
     return `<div class="entry-row">
@@ -288,6 +303,7 @@ function renderEntries(){
         <div>
           <div class="entry-desc">${esc(e.description)}</div>
           <div class="entry-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}${e.category?' · '+esc(e.category):''}</div>
+          ${e.project_id?`<div class="entry-sub">✅ ${esc(projectName(e.project_id))}</div>`:''}
         </div>
         <div class="entry-amt">${fmt(e.amount)} kr</div>
       </div>
@@ -332,6 +348,7 @@ function renderEntries(){
           <div id="ne-category-suggestions" class="autocomplete-list"></div>
         </div>
       </div>
+      ${state.projects.length ? `<div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ne-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>` : ''}
       <button class="btn btn-p" style="width:100%" onclick="saveEntry()">💾 Registrera utlägg</button>
       <div id="ne-status" style="margin-top:8px;font-size:13px;color:var(--accent)"></div>
     </div>
@@ -348,6 +365,8 @@ async function saveEntry(){
   const desc = document.getElementById('ne-desc').value.trim()
   const amount = parseFloat(document.getElementById('ne-amount').value)||0
   const category = document.getElementById('ne-category').value.trim() || null
+  const projectEl = document.getElementById('ne-project')
+  const projectId = projectEl ? (projectEl.value || null) : null
   const statusEl = document.getElementById('ne-status')
   if(!personId){ statusEl.textContent='Välj vem.'; return }
   if(!desc){ statusEl.textContent='Beskriv vad utlägget avser.'; return }
@@ -359,7 +378,7 @@ async function saveEntry(){
     try{ imageUrl = await uploadReceiptPhoto(selectedPhotoFile) }
     catch(err){ statusEl.textContent='Kunde inte ladda upp bilden: '+err.message; return }
   }
-  await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, category, image_url:imageUrl, paid_date:null })
+  await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, category, image_url:imageUrl, paid_date:null, project_id:projectId })
   selectedPhotoFile = null
   entryYear = new Date(date).getFullYear()
   await init()
@@ -371,6 +390,7 @@ async function saveEntry(){
 function editEntry(id){
   const e = state.entries.find(e=>e.id===id)
   if(!e) return
+  const projectOptions = state.projects.map(p=>`<option value="${p.id}" ${p.id===e.project_id?'selected':''}>${esc(p.title)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Redigera utlägg</div>
@@ -388,6 +408,7 @@ function editEntry(id){
         <div id="ee-category-suggestions" class="autocomplete-list"></div>
       </div>
     </div>
+    <div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ee-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="updateEntry('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -401,8 +422,9 @@ async function updateEntry(id){
   const desc = document.getElementById('ee-desc').value.trim()
   const amount = parseFloat(document.getElementById('ee-amount').value)||0
   const category = document.getElementById('ee-category').value.trim() || null
+  const projectId = document.getElementById('ee-project').value || null
   if(!desc||!amount){ alert('Fyll i beskrivning och belopp.'); return }
-  await sb.from('house_entries').update({ person_id:personId, date, description:desc, amount, category }).eq('id',id)
+  await sb.from('house_entries').update({ person_id:personId, date, description:desc, amount, category, project_id:projectId }).eq('id',id)
   closeModal(); await init()
 }
 
@@ -494,6 +516,91 @@ async function delPerson(id){
   await init()
 }
 
+// ── PROJEKT / ATT GÖRA ────────────────────────────────────────────────────────
+function setProjectStatusFilter(status){
+  projectStatusFilter = projectStatusFilter===status ? null : status
+  renderActive()
+}
+
+function renderProjects(){
+  const visible = projectStatusFilter ? state.projects.filter(p=>p.status===projectStatusFilter) : state.projects
+
+  const chips = `<div class="filter-chips">
+    <span class="chip ${!projectStatusFilter?'on':''}" onclick="setProjectStatusFilter(null)">Alla</span>
+    ${PROJECT_STATUSES.map(s=>`<span class="chip ${projectStatusFilter===s.value?'on':''}" onclick="setProjectStatusFilter('${s.value}')">${esc(s.label)}</span>`).join('')}
+  </div>`
+
+  const cards = visible.map(p=>{
+    const linked = state.entries.filter(e=>e.project_id===p.id)
+    const total = linked.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
+    const info = projectStatusInfo(p.status)
+    return `<div class="card">
+      <div class="card-hdr">
+        <div>
+          <div class="card-title">${esc(p.title)}</div>
+          ${p.description?`<div class="card-sub">${esc(p.description)}</div>`:''}
+          <div class="card-sub">${linked.length} kopplade utlägg${linked.length?` · ${fmt(total)} kr`:''}</div>
+        </div>
+        <div class="btn-row" style="flex-direction:column;align-items:flex-end">
+          <span class="badge ${info.cls}">${esc(info.label)}</span>
+          <button class="btn btn-g btn-sm" onclick="editProject('${p.id}')">Redigera</button>
+          <button class="btn btn-d btn-sm" onclick="delProject('${p.id}')">Ta bort</button>
+        </div>
+      </div>
+    </div>`
+  }).join('')
+
+  const emptyMsg = !state.projects.length
+    ? '<p class="empty">Inga projekt ännu. Lägg till saker som behöver göras med huset.</p>'
+    : (!visible.length ? '<p class="empty">Inga projekt med den här statusen.</p>' : '')
+
+  return `<div class="sh"><span class="sh-title">Projekt / Att göra</span><button class="btn btn-p" onclick="newProject()">+ Nytt projekt</button></div>
+    ${chips}${emptyMsg}${cards}`
+}
+
+function projectModal(p=null){
+  const id=p?p.id:''
+  const statusOpts = PROJECT_STATUSES.map(s=>`<option value="${s.value}" ${p&&p.status===s.value?'selected':''}>${esc(s.label)}</option>`).join('')
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">${p?'Redigera projekt':'Nytt projekt'}</div>
+    <div class="fg"><label>Titel</label><input id="pr-title" value="${esc(p?p.title:'')}" placeholder="t.ex. Byta friggebodstak" autofocus/></div>
+    <div class="fg"><label>Beskrivning (valfritt)</label><textarea id="pr-desc" placeholder="Detaljer, mått, offerter, vem som gör det, etc.">${esc(p?(p.description||''):'')}</textarea></div>
+    <div class="fg"><label>Status</label><select id="pr-status">${statusOpts}</select></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveProject('${id}')">Spara</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+function newProject(){ projectModal() }
+function editProject(id){ projectModal(state.projects.find(p=>p.id===id)) }
+
+async function saveProject(id){
+  const title = document.getElementById('pr-title').value.trim()
+  const description = document.getElementById('pr-desc').value.trim() || null
+  const status = document.getElementById('pr-status').value
+  if(!title){ alert('Ange en titel.'); return }
+  const { error } = id
+    ? await sb.from('house_projects').update({title,description,status}).eq('id',id)
+    : await sb.from('house_projects').insert({title,description,status})
+  if(error){ alert('Kunde inte spara projektet: '+error.message); return }
+  closeModal(); await init()
+}
+
+async function delProject(id){
+  const linkedCount = state.entries.filter(e=>e.project_id===id).length
+  const msg = linkedCount
+    ? `Ta bort projektet? ${linkedCount} kopplade utlägg finns kvar men blir okopplade.`
+    : 'Ta bort projektet?'
+  if(!confirm(msg)) return
+  await sb.from('house_entries').update({project_id:null}).eq('project_id',id)
+  const { error } = await sb.from('house_projects').delete().eq('id',id)
+  if(error){ alert('Kunde inte ta bort projektet: '+error.message); return }
+  await init()
+}
+
 // ── REPORT (Rapport) ────────────────────────────────────────────────────────────
 function renderReport(){
   const years = availableYears()
@@ -534,6 +641,20 @@ function renderReport(){
     <div class="fam-total"><span>Totalt</span><span>${fmt(totAll)} kr</span></div>
   </div>`
 
+  // Sammanställning per projekt – bara de med minst ett kopplat utlägg detta år
+  const projTotals = {}
+  yearEntries.forEach(e=>{
+    if(!e.project_id) return
+    projTotals[e.project_id] = (projTotals[e.project_id]||0) + (parseFloat(e.amount)||0)
+  })
+  const projRows = Object.entries(projTotals).sort((a,b)=>b[1]-a[1]).map(([pid,sum])=>
+    `<div class="fam-row"><span>${esc(projectName(pid))}</span><span>${fmt(sum)} kr</span></div>`
+  ).join('')
+  const projectCard = projRows ? `<div class="fam-card">
+    <div class="fam-name">Per projekt</div>
+    ${projRows}
+  </div>` : ''
+
   const csvBtn = `<button class="btn btn-g btn-sm" onclick="exportHouseCSV()">⬇ CSV (alla rader)</button>`
 
   const cards = state.people.map(p=>{
@@ -557,14 +678,14 @@ function renderReport(){
   return `<div class="sh"><span class="sh-title">Rapport</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
     ${summary}
     <div class="sh" style="margin-top:4px"><span></span>${csvBtn}</div>
-    ${categoryCard}${cards}`
+    ${categoryCard}${projectCard}${cards}`
 }
 
 function exportHouseCSV(){
   const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===reportYear)
-  const rows = [['Datum','Person','Kategori','Beskrivning','Belopp','Reglerat']]
+  const rows = [['Datum','Person','Kategori','Projekt','Beskrivning','Belopp','Reglerat']]
   yearEntries.forEach(e=>{
-    rows.push([e.date, personName(e.person_id), e.category||'', e.description, fmt(e.amount), e.paid_date?fmtDate(e.paid_date):'Oreglerat'])
+    rows.push([e.date, personName(e.person_id), e.category||'', e.project_id?projectName(e.project_id):'', e.description, fmt(e.amount), e.paid_date?fmtDate(e.paid_date):'Oreglerat'])
   })
   const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n')
   const a = document.createElement('a')
