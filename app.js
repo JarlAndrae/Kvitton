@@ -760,6 +760,46 @@ function computeOverlapSegments(vistelser){
   return segments.filter(s=>s.families.length>0)
 }
 
+function computeDailyOccupancy(vistelser){
+  if(!vistelser.length) return []
+  const minDate = vistelser.reduce((m,v)=>v.starts_at<m?v.starts_at:m, vistelser[0].starts_at)
+  const maxDate = vistelser.reduce((m,v)=>v.ends_at>m?v.ends_at:m, vistelser[0].ends_at)
+  const days = []
+  let cur = minDate
+  let guard = 0
+  while(cur <= maxDate && guard < 3660){
+    guard++
+    const presentFamilyIds = vistelser.filter(v=>v.starts_at<=cur && v.ends_at>=cur).map(v=>v.family_id)
+    const count = presentFamilyIds.reduce((s,id)=>s+famPersonCount(id),0)
+    days.push({date:cur, count, familyCount:presentFamilyIds.length})
+    cur = isoAdd(cur,1)
+  }
+  return days
+}
+
+function renderOccupancyChart(days){
+  if(!days.length) return ''
+  const maxCount = Math.max(...days.map(d=>d.count), 1)
+  const w = 700, h = 110, padBottom = 18, padTop = 8
+  const barW = w / days.length
+  const bars = days.map((d,i)=>{
+    const barH = maxCount>0 ? (d.count/maxCount)*(h-padBottom-padTop) : 0
+    const x = i*barW
+    const y = h - padBottom - barH
+    const color = d.count===0 ? 'var(--border)' : (d.familyCount>1 ? 'var(--accent)' : 'var(--accent-muted)')
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(barW-1,1).toFixed(1)}" height="${Math.max(barH,0).toFixed(1)}" fill="${color}"><title>${esc(fmtDateY(d.date))}: ${d.count} person${d.count===1?'':'er'}</title></rect>`
+  }).join('')
+  return `<div class="card" style="padding:12px 14px 8px;margin-bottom:12px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between">
+      <span>🛏️ Beläggning (personer/dag)</span><span>Max ${maxCount}</span>
+    </div>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:110px;display:block">${bars}</svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px">
+      <span>${esc(fmtDate(days[0].date))}</span><span>${esc(fmtDate(days[days.length-1].date))}</span>
+    </div>
+  </div>`
+}
+
 function renderKalender(){
   if(!state.platser.length){
     return `<p class="empty">Skapa ett ställe (t.ex. Båstad) under fliken Ställen för att kunna planera vistelser där.</p>`
@@ -802,6 +842,7 @@ function renderKalender(){
   return `<div class="sh"><span class="sh-title">Kalender</span><button class="btn btn-p" onclick="newVistelse()">+ Anmäl vistelse</button></div>
     <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
     <div class="hint">Vistelser är planering – helt separat från avräkning och mandagar. Anmäl när ni tänker vara i ${esc(platsName(calendarPlatsId))}, så syns det direkt om flera familjer är där samtidigt.</div>
+    ${renderOccupancyChart(computeDailyOccupancy(vistelser))}
     <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Översikt</span></div>
     ${segmentHtml}
     <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Alla vistelser</span></div>
