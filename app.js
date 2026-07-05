@@ -1,9 +1,10 @@
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
 
-let state = { families:[], periods:[], receipts:[], periodFamilies:[], platser:[], selectedPeriodId:null }
+let state = { families:[], periods:[], receipts:[], periodFamilies:[], platser:[], vistelser:[], selectedPeriodId:null }
 let receiptFilter = null // family_id or null = all
 let activeTab = 'receipts'
 let hideTemporaryFamilies = false
+let calendarPlatsId = null
 
 let currentKlanId = null
 let currentKlanName = ''
@@ -160,18 +161,21 @@ async function adminDeleteKlan(id, name){
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   showLoading()
-  const [f,p,r,pf,pl] = await Promise.all([
+  const [f,p,r,pf,pl,vi] = await Promise.all([
     sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
     sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
     sb.from('receipts').select('*').order('date',{ascending:false}),
     sb.from('period_families').select('*'),
     sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
+    sb.from('vistelser').select('*').order('starts_at'),
   ])
   state.families = f.data||[]
   state.periods = p.data||[]
   state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
   state.periodFamilies = pf.data||[]
   state.platser = pl.data||[]
+  const platsIds = new Set(state.platser.map(pl=>pl.id))
+  state.vistelser = (vi.data||[]).filter(v => platsIds.has(v.plats_id))
   const savedPeriodId = localStorage.getItem('kvitton_period')
   if(state.periods.length){
     if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
@@ -218,6 +222,7 @@ function render(tab){
   if(tab==='report')   el.innerHTML = renderReport()
   if(tab==='families') el.innerHTML = renderFamilies()
   if(tab==='platser')  el.innerHTML = renderPlatser()
+  if(tab==='kalender') el.innerHTML = renderKalender()
   if(tab==='periods')  el.innerHTML = renderPeriods()
   if(tab==='bulk')     renderBulk(el)
   if(tab==='klan')     el.innerHTML = renderKlan()
@@ -227,6 +232,8 @@ function render(tab){
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 function fmt(n,d=0){ return Number(n||0).toLocaleString('sv-SE',{minimumFractionDigits:d,maximumFractionDigits:d}) }
 function fmtDate(d){ return new Date(d).toLocaleDateString('sv-SE',{month:'short',day:'numeric'}) }
+function fmtDateY(d){ return new Date(d).toLocaleDateString('sv-SE',{year:'numeric',month:'short',day:'numeric'}) }
+function isoAdd(dateStr, days){ const [y,m,d]=dateStr.split('-').map(Number); const dt=new Date(y,m-1,d); dt.setDate(dt.getDate()+days); return dt.toISOString().slice(0,10) }
 function today(){ return new Date().toISOString().slice(0,10) }
 function periodReceipts(){ return state.receipts.filter(r=>r.period_id===state.selectedPeriodId) }
 function periodFamilyRows(){ return state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId) }
@@ -290,7 +297,7 @@ function setReceiptFilter(famId){
 function renderReceipts(){
   if(!state.periods.length){
     return `<p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[5])">📅 Skapa period</button></div>`
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[6])">📅 Skapa period</button></div>`
   }
   if(!state.selectedPeriodId) return '<p class="empty">Välj en period ovan.</p>'
   const period = currentPeriod()
@@ -686,9 +693,124 @@ async function savePlats(id){
 }
 
 async function delPlats(id){
-  if(!confirm('Ta bort stället? Perioder som var kopplade till det förlorar bara kopplingen, de tas inte bort.')) return
+  if(!confirm('Ta bort stället? Perioder som var kopplade till det förlorar bara kopplingen, de tas inte bort. OBS: eventuella vistelser (planeringskalendern) för stället tas bort.')) return
   const { error } = await sb.from('platser').delete().eq('id',id)
   if(error){ alert('Kunde inte ta bort stället: '+error.message); return }
+  await init()
+}
+
+// ── KALENDER / VISTELSER ──────────────────────────────────────────────────────
+// Vistelser är planering – helt fristående från avräkning/mandagar.
+function setCalendarPlats(id){ calendarPlatsId = id; renderActive() }
+
+function computeOverlapSegments(vistelser){
+  if(!vistelser.length) return []
+  const minDate = vistelser.reduce((m,v)=>v.starts_at<m?v.starts_at:m, vistelser[0].starts_at)
+  const maxDate = vistelser.reduce((m,v)=>v.ends_at>m?v.ends_at:m, vistelser[0].ends_at)
+  const segments = []
+  let cur = minDate
+  let segStart = null, curFamilies = null
+  while(cur <= maxDate){
+    const present = vistelser.filter(v=>v.starts_at<=cur && v.ends_at>=cur).map(v=>v.family_id).sort()
+    const key = present.join(',')
+    if(curFamilies===null || key !== curFamilies.join(',')){
+      if(segStart!==null) segments.push({start:segStart, end:isoAdd(cur,-1), families:curFamilies})
+      segStart = cur
+      curFamilies = present
+    }
+    cur = isoAdd(cur,1)
+  }
+  if(segStart!==null) segments.push({start:segStart, end:maxDate, families:curFamilies})
+  return segments.filter(s=>s.families.length>0)
+}
+
+function renderKalender(){
+  if(!state.platser.length){
+    return `<p class="empty">Skapa ett ställe (t.ex. Båstad) under fliken Ställen för att kunna planera vistelser där.</p>`
+  }
+  if(!state.families.length){
+    return `<p class="empty">Lägg till minst en familj innan ni kan anmäla vistelser.</p>`
+  }
+  if(!calendarPlatsId || !state.platser.find(p=>p.id===calendarPlatsId)){
+    calendarPlatsId = state.platser[0].id
+  }
+  const platsOpts = state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===calendarPlatsId?'selected':''}>${esc(pl.name)}</option>`).join('')
+  const vistelser = state.vistelser.filter(v=>v.plats_id===calendarPlatsId).sort((a,b)=>a.starts_at.localeCompare(b.starts_at))
+
+  const segments = computeOverlapSegments(vistelser)
+  const segmentHtml = segments.length ? segments.map(s=>{
+    const names = s.families.map(id=>famName(id)).filter(Boolean)
+    const overlap = names.length>1
+    const dateLabel = s.start===s.end ? fmtDateY(s.start) : `${fmtDateY(s.start)} – ${fmtDateY(s.end)}`
+    return `<div class="card" style="${overlap?'border-color:var(--accent);background:var(--accent-light)':''}">
+      <div style="font-weight:600;font-size:14px">${dateLabel}</div>
+      <div class="tags" style="margin-top:5px">${names.map(n=>`<span class="tag">${esc(n)}</span>`).join('')}</div>
+      ${overlap?`<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:5px">👥 ${names.length} familjer samtidigt</div>`:''}
+    </div>`
+  }).join('') : '<p class="empty">Inga vistelser inplanerade för det här stället ännu.</p>'
+
+  const listHtml = vistelser.map(v=>`<div class="slim-row">
+    <div style="flex:1;min-width:0">
+      <div class="slim-desc">${esc(famName(v.family_id))}</div>
+      <div class="slim-sub">${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)}${v.note?' · '+esc(v.note):''}</div>
+    </div>
+    <div class="slim-actions">
+      <button class="btn btn-g btn-sm" onclick="editVistelse('${v.id}')">✏️</button>
+      <button class="btn btn-d btn-sm" onclick="delVistelse('${v.id}')">✕</button>
+    </div>
+  </div>`).join('')
+
+  return `<div class="sh"><span class="sh-title">Kalender</span><button class="btn btn-p" onclick="newVistelse()">+ Anmäl vistelse</button></div>
+    <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
+    <div class="hint">Vistelser är planering – helt separat från avräkning och mandagar. Anmäl när ni tänker vara i ${esc(platsName(calendarPlatsId))}, så syns det direkt om flera familjer är där samtidigt.</div>
+    <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Översikt</span></div>
+    ${segmentHtml}
+    <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Alla vistelser</span></div>
+    ${vistelser.length ? listHtml : '<p class="empty">–</p>'}`
+}
+
+function vistelseModal(v=null){
+  const id=v?v.id:''
+  const famOpts = state.families.map(f=>`<option value="${f.id}" ${v&&f.id===v.family_id?'selected':''}>${esc(f.name)}</option>`).join('')
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">${v?'Redigera vistelse':'Anmäl vistelse'} – ${esc(platsName(calendarPlatsId))}</div>
+    <div class="fg"><label>Familj</label><select id="v-family">${famOpts}</select></div>
+    <div class="fr">
+      <div class="fg"><label>Från</label><input type="date" id="v-start" value="${v?v.starts_at:today()}"/></div>
+      <div class="fg"><label>Till</label><input type="date" id="v-end" value="${v?v.ends_at:today()}"/></div>
+    </div>
+    <div class="fg"><label>Anteckning (valfritt)</label><input id="v-note" value="${esc(v?(v.note||''):'')}" placeholder="t.ex. kommer torsdag kväll"/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveVistelse('${id}')">Spara</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+function newVistelse(){ vistelseModal() }
+function editVistelse(id){ vistelseModal(state.vistelser.find(v=>v.id===id)) }
+
+async function saveVistelse(id){
+  const familyId = document.getElementById('v-family').value
+  const starts = document.getElementById('v-start').value
+  const ends = document.getElementById('v-end').value
+  const note = document.getElementById('v-note').value.trim() || null
+  if(!familyId){ alert('Välj en familj.'); return }
+  if(!starts || !ends){ alert('Ange datum.'); return }
+  if(ends < starts){ alert('Slutdatum kan inte vara före startdatum.'); return }
+  const payload = { family_id:familyId, starts_at:starts, ends_at:ends, note, plats_id:calendarPlatsId }
+  const { error } = id
+    ? await sb.from('vistelser').update(payload).eq('id',id)
+    : await sb.from('vistelser').insert(payload)
+  if(error){ alert('Kunde inte spara vistelsen: '+error.message); return }
+  closeModal(); await init()
+}
+
+async function delVistelse(id){
+  if(!confirm('Ta bort vistelsen?')) return
+  const { error } = await sb.from('vistelser').delete().eq('id',id)
+  if(error){ alert('Kunde inte ta bort: '+error.message); return }
   await init()
 }
 
@@ -1103,7 +1225,7 @@ function renderBulk(el){
 
   if(!state.periods.length){
     el.innerHTML = `<div class="sh"><span class="sh-title">Registrera flera</span></div><p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[5])">📅 Skapa period</button></div>`
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[6])">📅 Skapa period</button></div>`
     return
   }
   if(!activePeriods.length){
