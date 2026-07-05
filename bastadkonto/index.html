@@ -23,11 +23,13 @@
   </header>
   <nav class="tabs">
     <button class="tab on" onclick="showTab('entries',this)">💰 Utlägg</button>
+    <button class="tab" onclick="showTab('projects',this)">✅ Projekt</button>
     <button class="tab" onclick="showTab('people',this)">👤 Personer</button>
     <button class="tab" onclick="showTab('report',this)">📊 Rapport</button>
   </nav>
   <main class="main">
     <div id="tab-entries"></div>
+    <div id="tab-projects" style="display:none"></div>
     <div id="tab-people" style="display:none"></div>
     <div id="tab-report" style="display:none"></div>
   </main>
