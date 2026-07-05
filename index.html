@@ -15,15 +15,15 @@
 <div id="authGate"></div>
 
 <div class="app" id="mainApp" style="display:none">
+  <nav class="app-switcher" id="appSwitcher"></nav>
   <header class="hdr">
     <h1>Kvittodelning</h1>
     <div class="hdr-right">
-      <a href="bastadkonto/" class="klan-pill" style="text-decoration:none">🏠 Båstadkonto</a>
-      <span class="klan-pill" id="klanPill" onclick="showTab('klan', document.querySelectorAll('.tab')[7])">–</span>
+      <span class="klan-pill" id="klanPill" onclick="showTab('klan', document.querySelectorAll('.tab')[5])">–</span>
       <select class="period-sel" id="periodSel" onchange="onPeriodChange(this.value)">
         <option value="">– välj period –</option>
       </select>
-      <button class="klan-pill" id="createPeriodBtn" style="display:none" onclick="showTab('periods', document.querySelectorAll('.tab')[6])">+ Skapa period</button>
+      <button class="klan-pill" id="createPeriodBtn" style="display:none" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">+ Skapa period</button>
     </div>
   </header>
   <nav class="tabs">
@@ -31,8 +31,6 @@
     <button class="tab" onclick="showTab('bulk',this)">➕ Flera</button>
     <button class="tab" onclick="showTab('report',this)">📊 Rapport</button>
     <button class="tab" onclick="showTab('families',this)">👨‍👩‍👧 Familjer</button>
-    <button class="tab" onclick="showTab('platser',this)">📍 Ställen</button>
-    <button class="tab" onclick="showTab('kalender',this)">🗓️ Kalender</button>
     <button class="tab" onclick="showTab('periods',this)">📅 Perioder</button>
     <button class="tab" onclick="showTab('klan',this)">👥 Klan</button>
   </nav>
@@ -40,8 +38,6 @@
     <div id="tab-receipts"></div>
     <div id="tab-report" style="display:none"></div>
     <div id="tab-families" style="display:none"></div>
-    <div id="tab-platser" style="display:none"></div>
-    <div id="tab-kalender" style="display:none"></div>
     <div id="tab-periods" style="display:none"></div>
     <div id="tab-bulk" style="display:none"></div>
     <div id="tab-klan" style="display:none"></div>
