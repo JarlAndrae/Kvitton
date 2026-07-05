@@ -9,6 +9,23 @@ let calendarPlatsId = null
 let currentKlanId = null
 let currentKlanName = ''
 
+// ── GLOBAL FELHANTERING ────────────────────────────────────────────────────────
+// Istället för att appen bara hänger sig/kraschar tyst vid ett oväntat fel,
+// visas felet i en banner högst upp så det går att felsöka/rapportera.
+function showError(msg){
+  let el = document.getElementById('errorBanner')
+  if(!el){
+    el = document.createElement('div')
+    el.id = 'errorBanner'
+    document.body.prepend(el)
+  }
+  el.style.cssText = 'position:sticky;top:0;z-index:9999;background:#c1121f;color:#fff;padding:10px 14px;font-size:13px;display:flex;gap:10px;align-items:flex-start'
+  el.innerHTML = `<span style="flex:1">⚠️ Ett fel uppstod: ${esc(String(msg).slice(0,300))}</span><button onclick="this.parentElement.style.display='none'" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer;line-height:1;flex-shrink:0">✕</button>`
+  el.style.display='flex'
+}
+window.addEventListener('error', e => showError(e.message || 'Okänt fel'))
+window.addEventListener('unhandledrejection', e => showError((e.reason && e.reason.message) || String(e.reason) || 'Okänt fel (promise)'))
+
 // ── KLAN GATE (lösenordsbaserad) ────────────────────────────────────────────
 function boot(){
   const params = new URLSearchParams(window.location.search)
@@ -161,31 +178,38 @@ async function adminDeleteKlan(id, name){
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   showLoading()
-  const [f,p,r,pf,pl,vi] = await Promise.all([
-    sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
-    sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
-    sb.from('receipts').select('*').order('date',{ascending:false}),
-    sb.from('period_families').select('*'),
-    sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
-    sb.from('vistelser').select('*').order('starts_at'),
-  ])
-  state.families = f.data||[]
-  state.periods = p.data||[]
-  state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
-  state.periodFamilies = pf.data||[]
-  state.platser = pl.data||[]
-  const platsIds = new Set(state.platser.map(pl=>pl.id))
-  state.vistelser = (vi.data||[]).filter(v => platsIds.has(v.plats_id))
-  const savedPeriodId = localStorage.getItem('kvitton_period')
-  if(state.periods.length){
-    if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
-      state.selectedPeriodId = savedPeriodId
-    } else if(!state.selectedPeriodId){
-      state.selectedPeriodId = state.periods[0].id
+  try{
+    const [f,p,r,pf,pl,vi] = await Promise.all([
+      sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
+      sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
+      sb.from('receipts').select('*').order('date',{ascending:false}),
+      sb.from('period_families').select('*'),
+      sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
+      sb.from('vistelser').select('*').order('starts_at'),
+    ])
+    state.families = f.data||[]
+    state.periods = p.data||[]
+    state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
+    state.periodFamilies = pf.data||[]
+    state.platser = pl.data||[]
+    const platsIds = new Set(state.platser.map(pl=>pl.id))
+    state.vistelser = (vi.data||[]).filter(v => platsIds.has(v.plats_id))
+    const savedPeriodId = localStorage.getItem('kvitton_period')
+    if(state.periods.length){
+      if(savedPeriodId && state.periods.find(p=>p.id===savedPeriodId)){
+        state.selectedPeriodId = savedPeriodId
+      } else if(!state.selectedPeriodId){
+        state.selectedPeriodId = state.periods[0].id
+      }
     }
+    renderPeriodSelect()
+    renderActive()
+  }catch(err){
+    console.error(err)
+    showError(err.message || String(err))
+    const el = document.getElementById('tab-'+activeTab)
+    if(el) el.innerHTML = '<p class="empty">Kunde inte ladda data. Felmeddelandet syns högst upp.</p>'
   }
-  renderPeriodSelect()
-  renderActive()
 }
 
 function showLoading(){ const el=document.getElementById('tab-'+activeTab); if(el) el.innerHTML='<div class="loading">Laddar…</div>' }
@@ -218,14 +242,20 @@ function renderActive(){ render(activeTab) }
 
 function render(tab){
   const el = document.getElementById('tab-'+tab)
-  if(tab==='receipts') el.innerHTML = renderReceipts()
-  if(tab==='report')   el.innerHTML = renderReport()
-  if(tab==='families') el.innerHTML = renderFamilies()
-  if(tab==='platser')  el.innerHTML = renderPlatser()
-  if(tab==='kalender') el.innerHTML = renderKalender()
-  if(tab==='periods')  el.innerHTML = renderPeriods()
-  if(tab==='bulk')     renderBulk(el)
-  if(tab==='klan')     el.innerHTML = renderKlan()
+  try{
+    if(tab==='receipts') el.innerHTML = renderReceipts()
+    if(tab==='report')   el.innerHTML = renderReport()
+    if(tab==='families') el.innerHTML = renderFamilies()
+    if(tab==='platser')  el.innerHTML = renderPlatser()
+    if(tab==='kalender') el.innerHTML = renderKalender()
+    if(tab==='periods')  el.innerHTML = renderPeriods()
+    if(tab==='bulk')     renderBulk(el)
+    if(tab==='klan')     el.innerHTML = renderKlan()
+  }catch(err){
+    console.error(err)
+    if(el) el.innerHTML = '<p class="empty">Något gick fel när den här fliken skulle visas. Felmeddelandet syns högst upp.</p>'
+    showError(err.message || String(err))
+  }
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -238,6 +268,7 @@ function today(){ return new Date().toISOString().slice(0,10) }
 function periodReceipts(){ return state.receipts.filter(r=>r.period_id===state.selectedPeriodId) }
 function periodFamilyRows(){ return state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId) }
 function famName(id){ return (state.families.find(f=>f.id===id)||{}).name||'' }
+function famPersonCount(id){ const f=state.families.find(f=>f.id===id); return f ? (f.person_count||1) : 0 }
 function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
 function currentPeriod(){ return state.periods.find(p=>p.id===state.selectedPeriodId) }
 function isLocked(p){ return p && p.status==='avräknad' }
@@ -590,6 +621,7 @@ function renderFamilies(){
     <div class="card-hdr">
       <div>
         <div class="card-title">${esc(f.name)}${f.is_temporary?' <span class="tag">Tillfällig</span>':''}</div>
+        <div class="card-sub">🛏️ ${f.person_count||1} person${(f.person_count||1)===1?'':'er'}</div>
         <div class="card-sub">Faktor: <strong>${fmt(parseFloat(f.factor||1),2)}</strong></div>
         <div class="card-sub">🍷 ${f.wine_drinkers} vindrickare</div>
       </div>
@@ -610,6 +642,7 @@ function familyModal(f=null){
   <div class="modal">
     <div class="modal-title">${f?'Redigera familj':'Ny familj'}</div>
     <div class="fg"><label>Namn</label><input id="f-name" value="${esc(f?f.name:'')}" placeholder="t.ex. J+S" autofocus/></div>
+    <div class="fg"><label>Antal personer</label><input type="number" id="f-people" value="${f?(f.person_count||1):1}" min="1" step="1"/><div style="font-size:12px;color:var(--muted);margin-top:3px">Används för att se hur många sängplatser som behövs – inte samma sak som faktorn nedan</div></div>
     <div class="fr">
       <div class="fg"><label>Faktor</label><input type="number" id="f-factor" value="${f?f.factor:1}" min="0" step="0.05"/><div style="font-size:12px;color:var(--muted);margin-top:3px">t.ex. 1.75 = två personer varav en betalar 75%</div></div>
     </div>
@@ -628,6 +661,7 @@ function editFamily(id){ familyModal(state.families.find(f=>f.id===id)) }
 async function saveFamily(id){
   const payload={
     name:document.getElementById('f-name').value.trim(),
+    person_count:parseInt(document.getElementById('f-people').value)||1,
     factor:parseFloat(document.getElementById('f-factor').value)||1,
     wine_drinkers:parseInt(document.getElementById('f-wine').value)||0,
     is_temporary:document.getElementById('f-temp').checked
@@ -742,12 +776,15 @@ function renderKalender(){
   const segments = computeOverlapSegments(vistelser)
   const segmentHtml = segments.length ? segments.map(s=>{
     const names = s.families.map(id=>famName(id)).filter(Boolean)
+    const totalPeople = s.families.reduce((sum,id)=>sum+famPersonCount(id),0)
     const overlap = names.length>1
     const dateLabel = s.start===s.end ? fmtDateY(s.start) : `${fmtDateY(s.start)} – ${fmtDateY(s.end)}`
     return `<div class="card" style="${overlap?'border-color:var(--accent);background:var(--accent-light)':''}">
       <div style="font-weight:600;font-size:14px">${dateLabel}</div>
       <div class="tags" style="margin-top:5px">${names.map(n=>`<span class="tag">${esc(n)}</span>`).join('')}</div>
-      ${overlap?`<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:5px">👥 ${names.length} familjer samtidigt</div>`:''}
+      <div style="font-size:12px;color:${overlap?'var(--accent)':'var(--muted)'};font-weight:${overlap?'600':'500'};margin-top:5px">
+        ${overlap?`👥 ${names.length} familjer samtidigt · `:''}🛏️ ${totalPeople} person${totalPeople===1?'':'er'}
+      </div>
     </div>`
   }).join('') : '<p class="empty">Inga vistelser inplanerade för det här stället ännu.</p>'
 
