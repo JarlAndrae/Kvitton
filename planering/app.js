@@ -73,7 +73,7 @@ async function init(){
   try{
     const [f,pl,vi] = await Promise.all([
       sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
-      sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
+      sb.from('platser').select('*').eq('klan_id',currentKlanId).order('recurring',{ascending:false}).order('name'),
       sb.from('vistelser').select('*').eq('klan_id',currentKlanId).order('starts_at'),
     ])
     state.families = f.data||[]
@@ -145,7 +145,7 @@ function renderPlatser(){
     return `<div class="card">
       <div class="card-hdr">
         <div>
-          <div class="card-title">${esc(pl.name)}</div>
+          <div class="card-title">${esc(pl.name)}${pl.recurring?' <span class="tag">🔁 Återkommande</span>':''}</div>
           <div class="card-sub">${vistCount} vistelse${vistCount===1?'':'r'} inplanerade</div>
         </div>
         <div class="btn-row">
@@ -156,7 +156,7 @@ function renderPlatser(){
     </div>`
   }).join('')
   return `<div class="sh"><span class="sh-title">Ställen</span><button class="btn btn-p" onclick="newPlats()">+ Lägg till</button></div>
-    <div class="hint">Ett ställe (t.ex. Båstad eller Kroatien) kan kopplas till perioder i Kvittodelning, så ni kan se vilka som är var. Vistelser planeras per ställe under fliken Kalender.</div>
+    <div class="hint">Ett ställe (t.ex. Båstad eller Kroatien) kan kopplas till perioder i Kvittodelning, så ni kan se vilka som är var. Vistelser planeras per ställe under fliken Kalender. Återkommande ställen (t.ex. sommarstället) visas överst i listor.</div>
     ${!state.platser.length?'<p class="empty">Inga ställen ännu.</p>':cards}`
 }
 
@@ -166,6 +166,7 @@ function platsModal(pl=null){
   <div class="modal">
     <div class="modal-title">${pl?'Redigera ställe':'Nytt ställe'}</div>
     <div class="fg"><label>Namn</label><input id="pl-name" value="${esc(pl?pl.name:'')}" placeholder="t.ex. Båstad" autofocus/></div>
+    <div class="fg"><label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pl-recurring" style="width:auto" ${pl&&pl.recurring?'checked':''}/> 🔁 Återkommande ställe (visas överst i listor)</label></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="savePlats('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -179,9 +180,10 @@ function editPlats(id){ platsModal(state.platser.find(p=>p.id===id)) }
 async function savePlats(id){
   const name = document.getElementById('pl-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
+  const recurring = document.getElementById('pl-recurring').checked
   const { error } = id
-    ? await sb.from('platser').update({name}).eq('id',id)
-    : await sb.from('platser').insert({name, klan_id: currentKlanId})
+    ? await sb.from('platser').update({name, recurring}).eq('id',id)
+    : await sb.from('platser').insert({name, recurring, klan_id: currentKlanId})
   if(error){ alert('Kunde inte spara stället: '+error.message); return }
   closeModal(); await init()
 }
@@ -327,7 +329,7 @@ function renderKalender(){
   if(!calendarPlatsId || !state.platser.find(p=>p.id===calendarPlatsId)){
     calendarPlatsId = state.platser[0].id
   }
-  const platsOpts = state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===calendarPlatsId?'selected':''}>${esc(pl.name)}</option>`).join('')
+  const platsOpts = state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===calendarPlatsId?'selected':''}>${pl.recurring?'🔁 ':''}${esc(pl.name)}</option>`).join('')
   const vistelser = state.vistelser.filter(v=>v.plats_id===calendarPlatsId).sort((a,b)=>a.starts_at.localeCompare(b.starts_at))
 
   const segments = computeOverlapSegments(vistelser)
