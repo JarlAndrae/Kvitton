@@ -791,10 +791,13 @@ function toggleFamCheck(famId){
 async function savePeriod(){
   const name=document.getElementById('p-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
+  const startsAt = document.getElementById('p-start').value
+  const endsAt = document.getElementById('p-end').value
+  if(endsAt < startsAt){ alert('Slutdatum kan inte vara före startdatum.'); return }
   const checked = state.families.filter(f=>document.getElementById('fc-'+f.id)?.checked)
   if(!checked.length){ alert('Välj minst en familj.'); return }
   const platsId = document.getElementById('p-plats').value || null
-  const {data:p}=await sb.from('periods').insert({name,starts_at:document.getElementById('p-start').value,ends_at:document.getElementById('p-end').value,klan_id:currentKlanId,status:'aktiv',plats_id:platsId}).select().single()
+  const {data:p}=await sb.from('periods').insert({name,starts_at:startsAt,ends_at:endsAt,klan_id:currentKlanId,status:'aktiv',plats_id:platsId}).select().single()
   if(p){
     const rows = checked.map(f=>({period_id:p.id,family_id:f.id,klan_id:currentKlanId,days:0,guest_days:0,day_states:JSON.stringify([])}))
     await sb.from('period_families').insert(rows)
@@ -948,10 +951,13 @@ function toggleEditFamCheck(famId){
 async function savePeriodDates(periodId){
   const name = document.getElementById('ep-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
+  const startsAt = document.getElementById('ep-start').value
+  const endsAt = document.getElementById('ep-end').value
+  if(endsAt < startsAt){ alert('Slutdatum kan inte vara före startdatum.'); return }
   await sb.from('periods').update({
     name,
-    starts_at: document.getElementById('ep-start').value,
-    ends_at: document.getElementById('ep-end').value,
+    starts_at: startsAt,
+    ends_at: endsAt,
     plats_id: document.getElementById('ep-plats').value || null
   }).eq('id', periodId)
 
