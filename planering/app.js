@@ -74,12 +74,11 @@ async function init(){
     const [f,pl,vi] = await Promise.all([
       sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
       sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
-      sb.from('vistelser').select('*').order('starts_at'),
+      sb.from('vistelser').select('*').eq('klan_id',currentKlanId).order('starts_at'),
     ])
     state.families = f.data||[]
     state.platser = pl.data||[]
-    const platsIds = new Set(state.platser.map(p=>p.id))
-    state.vistelser = (vi.data||[]).filter(v => platsIds.has(v.plats_id))
+    state.vistelser = vi.data||[]
     renderActive()
   }catch(err){
     console.error(err)
@@ -406,7 +405,7 @@ async function saveVistelse(id){
   if(!familyId){ alert('Välj en familj.'); return }
   if(!starts || !ends){ alert('Ange datum.'); return }
   if(ends < starts){ alert('Slutdatum kan inte vara före startdatum.'); return }
-  const payload = { family_id:familyId, starts_at:starts, ends_at:ends, note, plats_id:calendarPlatsId }
+  const payload = { family_id:familyId, starts_at:starts, ends_at:ends, note, plats_id:calendarPlatsId, klan_id:currentKlanId }
   const { error } = id
     ? await sb.from('vistelser').update(payload).eq('id',id)
     : await sb.from('vistelser').insert(payload)
