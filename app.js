@@ -175,13 +175,9 @@ async function adminSaveKlan(id){
 
 async function adminDeleteKlan(id, name){
   if(!confirm(`Ta bort klanen "${name}" och ALL dess data (familjer, perioder, kvitton)? Går inte att ångra.`)) return
-  const { data: periods } = await sb.from('periods').select('id').eq('klan_id',id)
-  const periodIds = (periods||[]).map(p=>p.id)
-  if(periodIds.length){
-    await sb.from('receipts').delete().in('period_id',periodIds)
-    await sb.from('period_families').delete().in('period_id',periodIds)
-    await sb.from('periods').delete().in('id',periodIds)
-  }
+  await sb.from('receipts').delete().eq('klan_id',id)
+  await sb.from('period_families').delete().eq('klan_id',id)
+  await sb.from('periods').delete().eq('klan_id',id)
   await sb.from('families').delete().eq('klan_id',id)
   await sb.from('platser').delete().eq('klan_id',id)
   await sb.from('klaner').delete().eq('id',id)
@@ -195,13 +191,13 @@ async function init() {
     const [f,p,r,pf,pl] = await Promise.all([
       sb.from('families').select('*').eq('klan_id',currentKlanId).order('name'),
       sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
-      sb.from('receipts').select('*').order('date',{ascending:false}),
-      sb.from('period_families').select('*'),
+      sb.from('receipts').select('*').eq('klan_id',currentKlanId).order('date',{ascending:false}),
+      sb.from('period_families').select('*').eq('klan_id',currentKlanId),
       sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
     ])
     state.families = f.data||[]
     state.periods = p.data||[]
-    state.receipts = (r.data||[]).filter(rec => state.periods.find(p=>p.id===rec.period_id))
+    state.receipts = r.data||[]
     state.periodFamilies = pf.data||[]
     state.platser = pl.data||[]
     const savedPeriodId = localStorage.getItem('kvitton_period')
@@ -800,7 +796,7 @@ async function savePeriod(){
   const platsId = document.getElementById('p-plats').value || null
   const {data:p}=await sb.from('periods').insert({name,starts_at:document.getElementById('p-start').value,ends_at:document.getElementById('p-end').value,klan_id:currentKlanId,status:'aktiv',plats_id:platsId}).select().single()
   if(p){
-    const rows = checked.map(f=>({period_id:p.id,family_id:f.id,days:0,guest_days:0,day_states:JSON.stringify([])}))
+    const rows = checked.map(f=>({period_id:p.id,family_id:f.id,klan_id:currentKlanId,days:0,guest_days:0,day_states:JSON.stringify([])}))
     await sb.from('period_families').insert(rows)
     state.selectedPeriodId=p.id
   }
@@ -904,7 +900,7 @@ async function saveEditDays(){
   const rows = state.families.map(f=>{
     const states = dayState[f.id]||[]
     const days = states.reduce((s,v)=>s+v,0)
-    return { period_id:periodId, family_id:f.id, days, day_states: JSON.stringify(states) }
+    return { period_id:periodId, family_id:f.id, klan_id:currentKlanId, days, day_states: JSON.stringify(states) }
   }).filter(r=>r.days>0)
   if(rows.length) await sb.from('period_families').insert(rows)
   closeModal(); await init()
@@ -970,9 +966,9 @@ async function savePeriodDates(periodId){
     }
   }
   if(toAdd.length){
-    const {error} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,days:0,guest_days:0,day_states:'[]'})))
+    const {error} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,klan_id:currentKlanId,days:0,guest_days:0,day_states:'[]'})))
     if(error){
-      const {error:e2} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,days:0})))
+      const {error:e2} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,klan_id:currentKlanId,days:0})))
       if(e2) { alert('Kunde inte lägga till familj: '+e2.message); return }
     }
   }
@@ -1065,7 +1061,7 @@ async function saveEditDaysWithGuest(familyId){
     const s = dayState[f.id]||[]
     const d = s.reduce((sum,v)=>sum+v,0)
     const gd = f.id===familyId ? guestDays : (state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===f.id)?.guest_days||0)
-    return { period_id:periodId, family_id:f.id, days:d, guest_days:gd, day_states:JSON.stringify(s) }
+    return { period_id:periodId, family_id:f.id, klan_id:currentKlanId, days:d, guest_days:gd, day_states:JSON.stringify(s) }
   }).filter(r=>r.days>0||r.guest_days>0||state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===r.family_id))
   if(rows.length) await sb.from('period_families').insert(rows)
   closeModal(); await init()
@@ -1194,6 +1190,7 @@ async function saveBulk(){
 
   const inserts = valid.map(r => ({
     period_id: periodId,
+    klan_id: currentKlanId,
     paid_by_family_id: familyId,
     description: r.desc.trim(),
     date: today(),
