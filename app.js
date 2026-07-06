@@ -193,7 +193,7 @@ async function init() {
       sb.from('periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
       sb.from('receipts').select('*').eq('klan_id',currentKlanId).order('date',{ascending:false}),
       sb.from('period_families').select('*').eq('klan_id',currentKlanId),
-      sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name'),
+      sb.from('platser').select('*').eq('klan_id',currentKlanId).order('recurring',{ascending:false}).order('name'),
     ])
     state.families = f.data||[]
     state.periods = p.data||[]
@@ -756,7 +756,7 @@ async function unlockPeriod(id){
 }
 
 function newPeriod(){
-  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}">${esc(pl.name)}</option>`).join('')
+  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}">${pl.recurring?'🔁 ':''}${esc(pl.name)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Ny period</div>
@@ -914,7 +914,7 @@ function editPeriodDates(periodId){
   if(!p) return
   const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
   const existingFamIds = existing.map(e=>e.family_id)
-  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===p.plats_id?'selected':''}>${esc(pl.name)}</option>`).join('')
+  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===p.plats_id?'selected':''}>${pl.recurring?'🔁 ':''}${esc(pl.name)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Redigera period</div>
