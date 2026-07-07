@@ -39,9 +39,9 @@ function renderNotLoggedIn(){
   const g = document.getElementById('authGate')
   g.style.display='block'
   g.innerHTML = `<div class="gate"><div class="gate-box">
-    <h2>Planering</h2>
-    <p>Du behöver logga in i en klan via Kvittodelning innan du kan planera vistelser.</p>
-    <a class="btn btn-p" style="width:100%;text-align:center;text-decoration:none;display:block" href="../">🧾 Gå till Kvittodelning</a>
+    <h2>Vistelseplanering</h2>
+    <p>Du behöver logga in i en klan via Hushållskostnader innan du kan planera vistelser.</p>
+    <a class="btn btn-p" style="width:100%;text-align:center;text-decoration:none;display:block" href="../">🧾 Gå till Hushållskostnader</a>
   </div></div>`
 }
 
@@ -54,12 +54,12 @@ async function enterApp(){
   await init()
 }
 
-// ── VÄXLINGSMENY (Kvitton / Planering / Båstadkonto / Projekt) ─────────────────
+// ── VÄXLINGSMENY (Hushållskostnader / Vistelseplanering / Fastighetskostnader / Projekt) ─────────────────
 function renderSwitcher(){
   const items = [
-    {key:'kvitton', icon:'🧾', label:'Kvitton', href:'../'},
-    {key:'planering', icon:'🗓️', label:'Planering', href:'./'},
-    {key:'bastadkonto', icon:'🏠', label:'Båstadkonto', href:'../bastadkonto/'},
+    {key:'kvitton', icon:'🧾', label:'Hushållskostnader', href:'../'},
+    {key:'planering', icon:'🗓️', label:'Vistelseplanering', href:'./'},
+    {key:'bastadkonto', icon:'🏠', label:'Fastighetskostnader', href:'../bastadkonto/'},
     {key:'projekt', icon:'✅', label:'Projekt', href:'../bastadkonto/?tab=projects'},
   ]
   const el = document.getElementById('appSwitcher')
