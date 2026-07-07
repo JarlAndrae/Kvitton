@@ -615,7 +615,7 @@ function renderReport(){
 
   const csvBtn=`<button class="btn btn-g btn-sm" onclick="exportCSV()">⬇ CSV</button>`
 
-  return `<div class="sh"><span class="sh-title">Rapport</span>${csvBtn}</div>${frozenBanner}${summary}${swishHtml}${cards}`
+  return `<div class="sh"><span class="sh-title">Avräkning</span>${csvBtn}</div>${frozenBanner}${summary}${swishHtml}${cards}`
 }
 
 function exportCSV(){
