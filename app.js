@@ -270,6 +270,8 @@ function fmtDateY(d){ return new Date(d).toLocaleDateString('sv-SE',{year:'numer
 function today(){ return new Date().toISOString().slice(0,10) }
 function periodReceipts(){ return state.receipts.filter(r=>r.period_id===state.selectedPeriodId) }
 function periodFamilyRows(){ return state.periodFamilies.filter(pf=>pf.period_id===state.selectedPeriodId) }
+function effectiveFactor(pf, fam){ return (pf && pf.factor_override!=null) ? parseFloat(pf.factor_override) : parseFloat((fam&&fam.factor)||1) }
+function effectiveWineDrinkers(pf, fam){ return (pf && pf.wine_drinkers_override!=null) ? parseInt(pf.wine_drinkers_override) : parseInt((fam&&fam.wine_drinkers)||0) }
 function famName(id){ return (state.families.find(f=>f.id===id)||{}).name||'' }
 function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
 function currentPeriod(){ return state.periods.find(p=>p.id===state.selectedPeriodId) }
@@ -482,13 +484,16 @@ function renderReport(){
 
   const pfMap = {}; pfRows.forEach(pf=>{ pfMap[pf.family_id]=parseFloat(pf.days)||0 })
   const pfMap2 = {}; pfRows.forEach(pf=>{ pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0 })
+  const pfById = {}; pfRows.forEach(pf=>{ pfById[pf.family_id]=pf })
 
   let sumMandagar=0, sumVinMandagar=0
   const famData = state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).map(f=>{
     const days=pfMap[f.id]||0
     const guestDays=parseFloat(pfMap2[f.id]||0)
-const mandagar=days*parseFloat(f.factor||1)+guestDays
-    const vinMandagar=days*parseInt(f.wine_drinkers)
+    const factor=effectiveFactor(pfById[f.id], f)
+    const wineDrinkers=effectiveWineDrinkers(pfById[f.id], f)
+const mandagar=days*factor+guestDays
+    const vinMandagar=days*wineDrinkers
     sumMandagar+=mandagar; sumVinMandagar+=vinMandagar
     return {...f,days,guestDays,mandagar,vinMandagar}
   })
@@ -590,11 +595,14 @@ function exportCSV(){
   const receipts=periodReceipts(), pfRows=periodFamilyRows()
   const pfMap={}; pfRows.forEach(pf=>{pfMap[pf.family_id]=parseFloat(pf.days)||0})
   const pfMap2={}; pfRows.forEach(pf=>{pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0})
+  const pfById={}; pfRows.forEach(pf=>{pfById[pf.family_id]=pf})
   let sumMandagar=0,sumVinMandagar=0
   const totMat=receipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
   const totVin=receipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
   const famData=state.families.filter(f=>pfMap[f.id]>0).map(f=>{
-    const days=pfMap[f.id]||0,gd=parseFloat(pfMap2[f.id]||0),mandagar=days*parseFloat(f.factor||1)+gd,vinMandagar=days*parseInt(f.wine_drinkers)
+    const days=pfMap[f.id]||0,gd=parseFloat(pfMap2[f.id]||0)
+    const factor=effectiveFactor(pfById[f.id], f), wineDrinkers=effectiveWineDrinkers(pfById[f.id], f)
+    const mandagar=days*factor+gd,vinMandagar=days*wineDrinkers
     sumMandagar+=mandagar;sumVinMandagar+=vinMandagar;return {...f,days,mandagar,vinMandagar}
   })
   const paidMat={},paidVin={}
@@ -690,10 +698,11 @@ function renderPeriods(){
       if(!ex) return ''
       const dagar = ex.days || 0
       const gast = ex.guest_days || 0
+      const hasOverride = ex.factor_override!=null || ex.wine_drinkers_override!=null
       const label = dagar > 0 || gast > 0
         ? `${fmt(dagar,1)} dagar${gast>0?' (+'+fmt(gast,1)+' gäst)':''}`
         : '0 dagar'
-      return `<span class="tag tag-clickable" onclick="editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label} ✏️</span>`
+      return `<span class="tag tag-clickable" onclick="editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label}${hasOverride?' ⚙️':''} ✏️</span>`
     }).join('')
     // Stats
     const pReceipts = state.receipts.filter(r=>r.period_id===p.id)
@@ -702,9 +711,10 @@ function renderPeriods(){
     const pfRows = entries
     const pfMap = {}; pfRows.forEach(pf=>{ pfMap[pf.family_id]=parseFloat(pf.days)||0 })
     const pfMap2 = {}; pfRows.forEach(pf=>{ pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0 })
+    const pfById = {}; pfRows.forEach(pf=>{ pfById[pf.family_id]=pf })
     let sumMandagar=0
     state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).forEach(f=>{
-      sumMandagar += (pfMap[f.id]||0)*parseFloat(f.factor||1)+(pfMap2[f.id]||0)
+      sumMandagar += (pfMap[f.id]||0)*effectiveFactor(pfById[f.id], f)+(pfMap2[f.id]||0)
     })
     const mkMat = sumMandagar>0 ? totMat/sumMandagar : 0
     const mkVin = sumMandagar>0 ? totVin/sumMandagar : 0
@@ -928,12 +938,22 @@ function editPeriodDates(periodId){
       <div class="family-check-list" style="margin-top:6px">
         ${state.families.map(f=>{
           const checked = existingFamIds.includes(f.id)
-          return `<label class="fam-check" id="efc-label-${f.id}" style="${checked?'background:var(--accent-light);border-color:var(--accent)':''}">
-            <input type="checkbox" id="efc-${f.id}" ${checked?'checked':''} onchange="toggleEditFamCheck('${f.id}')"/> ${esc(f.name)}
-          </label>`
+          const pf = existing.find(e=>e.family_id===f.id)
+          const factorVal = pf&&pf.factor_override!=null ? pf.factor_override : ''
+          const wineVal = pf&&pf.wine_drinkers_override!=null ? pf.wine_drinkers_override : ''
+          return `<div class="fam-check" id="efc-label-${f.id}" style="flex-direction:column;align-items:stretch;gap:6px;${checked?'background:var(--accent-light);border-color:var(--accent)':''}">
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <input type="checkbox" id="efc-${f.id}" ${checked?'checked':''} onchange="toggleEditFamCheck('${f.id}')"/> ${esc(f.name)}
+            </label>
+            <div style="display:flex;gap:6px">
+              <input type="number" id="efc-factor-${f.id}" min="0" step="0.05" value="${factorVal}" placeholder="Faktor ${fmt(parseFloat(f.factor||1),2)}" style="flex:1;font-size:12px;padding:5px 7px"/>
+              <input type="number" id="efc-wine-${f.id}" min="0" step="1" value="${wineVal}" placeholder="Vin ${f.wine_drinkers||0}" style="flex:1;font-size:12px;padding:5px 7px"/>
+            </div>
+          </div>`
         }).join('')}
       </div>
-      <div style="font-size:12px;color:var(--danger);margin-top:6px">OBS: om du tar bort en familj försvinner deras dagar i perioden.</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">Faktor/vin: fyll bara i om det avviker från familjens vanliga inställning den här perioden.</div>
+      <div style="font-size:12px;color:var(--danger);margin-top:4px">OBS: om du tar bort en familj försvinner deras dagar i perioden.</div>
     </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="savePeriodDates('${periodId}')">Spara</button>
@@ -965,6 +985,16 @@ async function savePeriodDates(periodId){
   const checkedIds = state.families.filter(f=>document.getElementById('efc-'+f.id)?.checked).map(f=>f.id)
   const toAdd = checkedIds.filter(id=>!existing.find(e=>e.family_id===id))
   const toRemove = existing.filter(e=>!checkedIds.includes(e.family_id)).map(e=>e.family_id)
+  const toUpdateOverrides = checkedIds.filter(id=>existing.find(e=>e.family_id===id))
+
+  const readOverrides = (id) => {
+    const factorRaw = document.getElementById('efc-factor-'+id)?.value
+    const wineRaw = document.getElementById('efc-wine-'+id)?.value
+    return {
+      factor_override: factorRaw ? parseFloat(factorRaw) : null,
+      wine_drinkers_override: wineRaw ? parseInt(wineRaw) : null
+    }
+  }
 
   if(toRemove.length){
     for(const famId of toRemove){
@@ -972,10 +1002,16 @@ async function savePeriodDates(periodId){
     }
   }
   if(toAdd.length){
-    const {error} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,klan_id:currentKlanId,days:0,guest_days:0,day_states:'[]'})))
+    const addRows = toAdd.map(id=>({period_id:periodId,family_id:id,klan_id:currentKlanId,days:0,guest_days:0,day_states:'[]',...readOverrides(id)}))
+    const {error} = await sb.from('period_families').insert(addRows)
     if(error){
       const {error:e2} = await sb.from('period_families').insert(toAdd.map(id=>({period_id:periodId,family_id:id,klan_id:currentKlanId,days:0})))
       if(e2) { alert('Kunde inte lägga till familj: '+e2.message); return }
+    }
+  }
+  if(toUpdateOverrides.length){
+    for(const famId of toUpdateOverrides){
+      await sb.from('period_families').update(readOverrides(famId)).eq('period_id',periodId).eq('family_id',famId)
     }
   }
 
@@ -1026,6 +1062,8 @@ function renderSingleFamilyDaysModal(period, dates, familyId){
 
   const ex = state.periodFamilies.find(pf=>pf.period_id===editDaysPeriodId&&pf.family_id===familyId)
   const guestDays = ex ? (parseFloat(ex.guest_days)||0) : 0
+  const factorVal = ex && ex.factor_override!=null ? ex.factor_override : ''
+  const wineVal = ex && ex.wine_drinkers_override!=null ? ex.wine_drinkers_override : ''
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">${esc(fam?.name||'')} – ${esc(period?.name||'')}</div>
@@ -1038,6 +1076,15 @@ function renderSingleFamilyDaysModal(period, dates, familyId){
       <input type="number" id="guest-days-input" min="0" step="0.5" value="${guestDays}" placeholder="0"/>
       <div style="font-size:12px;color:var(--muted);margin-top:3px">Gäster som ${esc(fam?.name||'')} bjuder på – deras dagar räknas in i familjens mandagar</div>
     </div>
+    <div class="fr" style="margin-top:14px">
+      <div class="fg"><label>Faktor denna period (valfritt)</label>
+        <input type="number" id="factor-override-input" min="0" step="0.05" value="${factorVal}" placeholder="${fmt(parseFloat(fam?.factor||1),2)} (vanlig)"/>
+      </div>
+      <div class="fg"><label>Vindrickare denna period (valfritt)</label>
+        <input type="number" id="wine-override-input" min="0" step="1" value="${wineVal}" placeholder="${fam?fam.wine_drinkers:0} (vanligt)"/>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:-6px">Fyll bara i om det avviker från familjens vanliga inställning den här perioden.</div>
     <div class="btn-row" style="margin-top:12px">
       <button class="btn btn-p" onclick="saveEditDaysWithGuest('${familyId}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -1062,13 +1109,20 @@ function toggleHalfSingle(famId, idx, periodId){
 async function saveEditDaysWithGuest(familyId){
   const periodId = editDaysPeriodId
   const guestDays = parseFloat(document.getElementById('guest-days-input')?.value)||0
+  const factorRaw = document.getElementById('factor-override-input')?.value
+  const wineRaw = document.getElementById('wine-override-input')?.value
+  const factorOverride = factorRaw ? parseFloat(factorRaw) : null
+  const wineOverride = wineRaw ? parseInt(wineRaw) : null
   await sb.from('period_families').delete().eq('period_id',periodId)
   const rows = state.families.map(f=>{
     const s = dayState[f.id]||[]
     const d = s.reduce((sum,v)=>sum+v,0)
-    const gd = f.id===familyId ? guestDays : (state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===f.id)?.guest_days||0)
-    return { period_id:periodId, family_id:f.id, klan_id:currentKlanId, days:d, guest_days:gd, day_states:JSON.stringify(s) }
-  }).filter(r=>r.days>0||r.guest_days>0||state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===r.family_id))
+    const existingPf = state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===f.id)
+    const gd = f.id===familyId ? guestDays : (existingPf?.guest_days||0)
+    const fo = f.id===familyId ? factorOverride : (existingPf?.factor_override ?? null)
+    const wo = f.id===familyId ? wineOverride : (existingPf?.wine_drinkers_override ?? null)
+    return { period_id:periodId, family_id:f.id, klan_id:currentKlanId, days:d, guest_days:gd, factor_override:fo, wine_drinkers_override:wo, day_states:JSON.stringify(s) }
+  }).filter(r=>r.days>0||r.guest_days>0||r.factor_override!=null||r.wine_drinkers_override!=null||state.periodFamilies.find(pf=>pf.period_id===periodId&&pf.family_id===r.family_id))
   if(rows.length) await sb.from('period_families').insert(rows)
   closeModal(); await init()
 }
