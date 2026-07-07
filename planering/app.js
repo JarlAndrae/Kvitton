@@ -4,6 +4,7 @@ let state = { families:[], platser:[], vistelser:[] }
 let activeTab = 'platser'
 let calendarPlatsId = null
 let calendarChartMode = 'bar'
+let weekAnchorDate = null
 let currentKlanId = null
 let currentKlanName = ''
 
@@ -134,7 +135,11 @@ function isoWeekNumber(dateStr){
 function today(){ return new Date().toISOString().slice(0,10) }
 function famName(id){ return (state.families.find(f=>f.id===id)||{}).name||'' }
 function famPersonCount(id){ const f=state.families.find(f=>f.id===id); return f ? (f.person_count||1) : 0 }
+function effectivePersonCount(v){ return (v.person_count_override!=null && v.person_count_override!=='') ? parseInt(v.person_count_override) : famPersonCount(v.family_id) }
 function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
+function isoWeekStart(dateStr){ const dow=dayOfWeekUTC(dateStr); const diff = dow===0 ? -6 : (1-dow); return isoAdd(dateStr, diff) }
+function getWeekDates(anchorDate){ const monday=isoWeekStart(anchorDate); const dates=[]; for(let i=0;i<7;i++) dates.push(isoAdd(monday,i)); return dates }
+function dayLabelUTC(dateStr){ const days=['sö','må','ti','on','to','fr','lö']; const d=new Date(toUTCms(dateStr)); return `${days[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}` }
 function closeModal(){ document.getElementById('modal').style.display='none'; document.getElementById('modal').innerHTML='' }
 function openModal(html){ document.getElementById('modal').innerHTML=html; document.getElementById('modal').style.display='block' }
 
@@ -197,7 +202,7 @@ async function delPlats(id){
 
 // ── KALENDER / VISTELSER ──────────────────────────────────────────────────────
 // Vistelser är planering – helt fristående från avräkning/mandagar i Kvittodelning.
-function setCalendarPlats(id){ calendarPlatsId = id; renderActive() }
+function setCalendarPlats(id){ calendarPlatsId = id; weekAnchorDate = null; renderActive() }
 function setCalendarChartMode(mode){ calendarChartMode = mode; renderActive() }
 
 function computeOverlapSegments(vistelser){
@@ -206,21 +211,22 @@ function computeOverlapSegments(vistelser){
   const maxDate = vistelser.reduce((m,v)=>v.ends_at>m?v.ends_at:m, vistelser[0].ends_at)
   const segments = []
   let cur = minDate
-  let segStart = null, curFamilies = null
+  let segStart = null, curKey = null, curVistelser = null
   let guard = 0
   while(cur <= maxDate && guard < 3660){ // säkerhetsspärr: max ~10 år, ska aldrig triggas i praktiken
     guard++
-    const present = vistelser.filter(v=>v.starts_at<=cur && v.ends_at>=cur).map(v=>v.family_id).sort()
-    const key = present.join(',')
-    if(curFamilies===null || key !== curFamilies.join(',')){
-      if(segStart!==null) segments.push({start:segStart, end:isoAdd(cur,-1), families:curFamilies})
+    const present = vistelser.filter(v=>v.starts_at<=cur && v.ends_at>=cur).sort((a,b)=>a.id.localeCompare(b.id))
+    const key = present.map(v=>v.id).join(',')
+    if(curKey===null || key !== curKey){
+      if(segStart!==null) segments.push({start:segStart, end:isoAdd(cur,-1), vistelser:curVistelser})
       segStart = cur
-      curFamilies = present
+      curKey = key
+      curVistelser = present
     }
     cur = isoAdd(cur,1)
   }
-  if(segStart!==null) segments.push({start:segStart, end:maxDate, families:curFamilies})
-  return segments.filter(s=>s.families.length>0)
+  if(segStart!==null) segments.push({start:segStart, end:maxDate, vistelser:curVistelser})
+  return segments.filter(s=>s.vistelser.length>0)
 }
 
 function computeDailyOccupancy(vistelser){
@@ -232,9 +238,9 @@ function computeDailyOccupancy(vistelser){
   let guard = 0
   while(cur <= maxDate && guard < 3660){
     guard++
-    const presentFamilyIds = vistelser.filter(v=>v.starts_at<=cur && v.ends_at>=cur).map(v=>v.family_id)
-    const count = presentFamilyIds.reduce((s,id)=>s+famPersonCount(id),0)
-    days.push({date:cur, count, familyCount:presentFamilyIds.length})
+    const present = vistelser.filter(v=>v.starts_at<=cur && v.ends_at>=cur)
+    const count = present.reduce((s,v)=>s+effectivePersonCount(v),0)
+    days.push({date:cur, count, familyCount:present.length})
     cur = isoAdd(cur,1)
   }
   return days
@@ -289,7 +295,7 @@ function renderTimelineChart(vistelser){
       const x = labelW + dayDiff(minDate,v.starts_at)*pxPerDay
       const bw = Math.max((dayDiff(v.starts_at,v.ends_at)+1)*pxPerDay - 2, 3)
       const color = colors[rowIdx % colors.length]
-      const title = `${famName(famId)}: ${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)}`
+      const title = `${famName(famId)}: ${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)} (${effectivePersonCount(v)} pers)`
       return `<rect x="${x.toFixed(1)}" y="${(y+4).toFixed(1)}" width="${bw.toFixed(1)}" height="${(rowH-10).toFixed(1)}" rx="4" fill="${color}"><title>${esc(title)}</title></rect>`
     }).join('')
     const rowLine = `<line x1="${labelW}" y1="${(y+rowH).toFixed(1)}" x2="${w}" y2="${(y+rowH).toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
@@ -319,6 +325,59 @@ function renderTimelineChart(vistelser){
   </div>`
 }
 
+function shiftWeek(dir){ weekAnchorDate = isoAdd(weekAnchorDate, dir*7); renderActive() }
+
+function renderWeekGantt(vistelser){
+  if(weekAnchorDate===null){
+    weekAnchorDate = vistelser.length ? vistelser[0].starts_at : today()
+  }
+  const weekDates = getWeekDates(weekAnchorDate)
+  const weekStart = weekDates[0], weekEnd = weekDates[6]
+  const wn = isoWeekNumber(weekStart)
+  const activeVistelser = vistelser
+    .filter(v=>v.starts_at<=weekEnd && v.ends_at>=weekStart)
+    .sort((a,b)=>famName(a.family_id).localeCompare(famName(b.family_id),'sv'))
+
+  const nav = `<div class="btn-row" style="justify-content:center;align-items:center;gap:14px;margin-bottom:8px">
+    <button class="btn btn-g btn-sm" onclick="shiftWeek(-1)">‹ Föregående</button>
+    <span style="font-weight:600;font-size:14px">v.${wn} · ${esc(fmtDate(weekStart))} – ${esc(fmtDate(weekEnd))}</span>
+    <button class="btn btn-g btn-sm" onclick="shiftWeek(1)">Nästa ›</button>
+  </div>`
+
+  if(!activeVistelser.length){
+    return `${nav}<p class="empty">Inga vistelser den här veckan.</p>`
+  }
+
+  const dayHeaders = weekDates.map(d=>`<th style="padding:6px 4px;border-bottom:2px solid var(--border);text-align:center;white-space:nowrap;font-size:11px;color:var(--muted)">${esc(dayLabelUTC(d))}</th>`).join('')
+
+  const rows = activeVistelser.map(v=>{
+    const cells = weekDates.map(d=>{
+      const present = v.starts_at<=d && v.ends_at>=d
+      if(!present) return `<td style="padding:6px 4px;text-align:center;color:var(--border)">–</td>`
+      return `<td style="padding:6px 4px;text-align:center"><span style="display:inline-block;min-width:22px;padding:2px 6px;border-radius:6px;background:var(--accent-light);color:var(--accent);font-weight:600">${effectivePersonCount(v)}</span></td>`
+    }).join('')
+    return `<tr><td style="padding:6px 8px;white-space:nowrap;border-bottom:1px solid var(--border);font-size:13px">${esc(famName(v.family_id))}</td>${cells}</tr>`
+  }).join('')
+
+  const totalCells = weekDates.map(d=>{
+    const total = activeVistelser.filter(v=>v.starts_at<=d && v.ends_at>=d).reduce((s,v)=>s+effectivePersonCount(v),0)
+    return `<td style="padding:6px 4px;text-align:center">${total||'–'}</td>`
+  }).join('')
+
+  return `${nav}
+    <div class="card" style="padding:12px;overflow-x:auto;margin-bottom:12px">
+      <table style="width:100%;border-collapse:collapse;min-width:480px">
+        <thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);white-space:nowrap;font-size:11px;color:var(--muted)">Familj</th>${dayHeaders}</tr></thead>
+        <tbody>
+          ${rows}
+          <tr style="border-top:2px solid var(--border);font-weight:700;font-size:13px">
+            <td style="padding:6px 8px;white-space:nowrap">Totalt</td>${totalCells}
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+}
+
 function renderKalender(){
   if(!state.platser.length){
     return `<p class="empty">Skapa ett ställe (t.ex. Båstad) under fliken Ställen för att kunna planera vistelser där.</p>`
@@ -334,8 +393,8 @@ function renderKalender(){
 
   const segments = computeOverlapSegments(vistelser)
   const segmentHtml = segments.length ? segments.map(s=>{
-    const names = s.families.map(id=>famName(id)).filter(Boolean)
-    const totalPeople = s.families.reduce((sum,id)=>sum+famPersonCount(id),0)
+    const names = s.vistelser.map(v=>famName(v.family_id)).filter(Boolean)
+    const totalPeople = s.vistelser.reduce((sum,v)=>sum+effectivePersonCount(v),0)
     const overlap = names.length>1
     const dateLabel = s.start===s.end ? fmtDateY(s.start) : `${fmtDateY(s.start)} – ${fmtDateY(s.end)}`
     return `<div class="card" style="${overlap?'border-color:var(--accent);background:var(--accent-light)':''}">
@@ -350,7 +409,7 @@ function renderKalender(){
   const listHtml = vistelser.map(v=>`<div class="slim-row">
     <div style="flex:1;min-width:0">
       <div class="slim-desc">${esc(famName(v.family_id))}</div>
-      <div class="slim-sub">${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)}${v.note?' · '+esc(v.note):''}</div>
+      <div class="slim-sub">${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)}${v.person_count_override!=null?' · 👤 '+v.person_count_override+' pers (avviker)':''}${v.note?' · '+esc(v.note):''}</div>
     </div>
     <div class="slim-actions">
       <button class="btn btn-g btn-sm" onclick="editVistelse('${v.id}')">✏️</button>
@@ -361,9 +420,12 @@ function renderKalender(){
   const chartToggle = `<div class="btn-row" style="margin-bottom:8px">
     <button class="btn ${calendarChartMode==='bar'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('bar')">📊 Diagram</button>
     <button class="btn ${calendarChartMode==='timeline'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('timeline')">📅 Tidslinje</button>
+    <button class="btn ${calendarChartMode==='week'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('week')">🔎 Vecka</button>
   </div>`
   const chartHtml = calendarChartMode==='timeline'
     ? renderTimelineChart(vistelser)
+    : calendarChartMode==='week'
+    ? renderWeekGantt(vistelser)
     : renderOccupancyChart(computeDailyOccupancy(vistelser))
 
   return `<div class="sh"><span class="sh-title">Kalender</span><button class="btn btn-p" onclick="newVistelse()">+ Anmäl vistelse</button></div>
@@ -379,14 +441,20 @@ function renderKalender(){
 
 function vistelseModal(v=null){
   const id=v?v.id:''
+  const defaultFamId = v ? v.family_id : (state.families[0]?.id||'')
   const famOpts = state.families.map(f=>`<option value="${f.id}" ${v&&f.id===v.family_id?'selected':''}>${esc(f.name)}</option>`).join('')
+  const overrideVal = v && v.person_count_override!=null ? v.person_count_override : ''
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">${v?'Redigera vistelse':'Anmäl vistelse'} – ${esc(platsName(calendarPlatsId))}</div>
-    <div class="fg"><label>Familj</label><select id="v-family">${famOpts}</select></div>
+    <div class="fg"><label>Familj</label><select id="v-family" onchange="updateVistelsePersonPlaceholder()">${famOpts}</select></div>
     <div class="fr">
       <div class="fg"><label>Från</label><input type="date" id="v-start" value="${v?v.starts_at:today()}"/></div>
       <div class="fg"><label>Till</label><input type="date" id="v-end" value="${v?v.ends_at:today()}"/></div>
+    </div>
+    <div class="fg"><label>Antal personer den här vistelsen (valfritt)</label>
+      <input type="number" id="v-person-override" min="0" step="1" value="${overrideVal}" placeholder="${famPersonCount(defaultFamId)} (familjens vanliga antal)"/>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">Fyll bara i om antalet avviker från familjens vanliga antal den här gången.</div>
     </div>
     <div class="fg"><label>Anteckning (valfritt)</label><input id="v-note" value="${esc(v?(v.note||''):'')}" placeholder="t.ex. kommer torsdag kväll"/></div>
     <div class="btn-row">
@@ -394,6 +462,12 @@ function vistelseModal(v=null){
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
+}
+
+function updateVistelsePersonPlaceholder(){
+  const famId = document.getElementById('v-family').value
+  const input = document.getElementById('v-person-override')
+  if(input) input.placeholder = `${famPersonCount(famId)} (familjens vanliga antal)`
 }
 
 function newVistelse(){ vistelseModal() }
@@ -404,10 +478,12 @@ async function saveVistelse(id){
   const starts = document.getElementById('v-start').value
   const ends = document.getElementById('v-end').value
   const note = document.getElementById('v-note').value.trim() || null
+  const overrideRaw = document.getElementById('v-person-override').value
+  const personCountOverride = overrideRaw !== '' ? parseInt(overrideRaw) : null
   if(!familyId){ alert('Välj en familj.'); return }
   if(!starts || !ends){ alert('Ange datum.'); return }
   if(ends < starts){ alert('Slutdatum kan inte vara före startdatum.'); return }
-  const payload = { family_id:familyId, starts_at:starts, ends_at:ends, note, plats_id:calendarPlatsId, klan_id:currentKlanId }
+  const payload = { family_id:familyId, starts_at:starts, ends_at:ends, note, plats_id:calendarPlatsId, klan_id:currentKlanId, person_count_override:personCountOverride }
   const { error } = id
     ? await sb.from('vistelser').update(payload).eq('id',id)
     : await sb.from('vistelser').insert(payload)
