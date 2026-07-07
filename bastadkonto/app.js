@@ -33,7 +33,7 @@ function hideGate(){ document.getElementById('authGate').style.display='none'; d
 
 function renderGateLogin(){
   gate(`<div class="gate"><div class="gate-box">
-    <h2>Båstadkonto</h2>
+    <h2>Fastighetskostnader</h2>
     <p>Ange lösenordet för att komma in.</p>
     <div class="fg"><label>Lösenord</label><input id="gate-password" type="password" autofocus/></div>
     <button class="btn btn-p" style="width:100%" onclick="tryLogin()">Logga in</button>
@@ -67,13 +67,13 @@ async function enterApp(){
   }
 }
 
-// ── VÄXLINGSMENY (Kvitton / Planering / Båstadkonto / Projekt) ────────────────
+// ── VÄXLINGSMENY (Hushållskostnader / Vistelseplanering / Fastighetskostnader / Projekt) ────────────────
 function updateSwitcher(){
   const current = activeTab==='projects' ? 'projekt' : 'bastadkonto'
   const items = [
-    {key:'kvitton', icon:'🧾', label:'Kvitton', href:'../'},
-    {key:'planering', icon:'🗓️', label:'Planering', href:'../planering/'},
-    {key:'bastadkonto', icon:'🏠', label:'Båstadkonto', href:'./'},
+    {key:'kvitton', icon:'🧾', label:'Hushållskostnader', href:'../'},
+    {key:'planering', icon:'🗓️', label:'Vistelseplanering', href:'../planering/'},
+    {key:'bastadkonto', icon:'🏠', label:'Fastighetskostnader', href:'./'},
     {key:'projekt', icon:'✅', label:'Projekt', href:'./?tab=projects'},
   ]
   const el = document.getElementById('appSwitcher')
