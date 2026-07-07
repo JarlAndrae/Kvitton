@@ -51,7 +51,7 @@ function hideGate(){ document.getElementById('authGate').style.display='none'; d
 
 function renderGateLogin(){
   gate(`<div class="gate"><div class="gate-box">
-    <h2>Kvittodelning</h2>
+    <h2>Hushållskostnader</h2>
     <p>Ange klanens namn och lösenord för att komma in.</p>
     <div class="fg"><label>Klanens namn</label><input id="gate-name" placeholder="t.ex. Sommarhuset"/></div>
     <div class="fg"><label>Lösenord</label><input id="gate-password" type="password"/></div>
@@ -92,12 +92,12 @@ async function enterApp(){
   await init()
 }
 
-// ── VÄXLINGSMENY (Kvitton / Planering / Båstadkonto / Projekt) ─────────────────
+// ── VÄXLINGSMENY (Hushållskostnader / Vistelseplanering / Fastighetskostnader / Projekt) ─────────────────
 function renderSwitcher(){
   const items = [
-    {key:'kvitton', icon:'🧾', label:'Kvitton', href:'./'},
-    {key:'planering', icon:'🗓️', label:'Planering', href:'planering/'},
-    {key:'bastadkonto', icon:'🏠', label:'Båstadkonto', href:'bastadkonto/'},
+    {key:'kvitton', icon:'🧾', label:'Hushållskostnader', href:'./'},
+    {key:'planering', icon:'🗓️', label:'Vistelseplanering', href:'planering/'},
+    {key:'bastadkonto', icon:'🏠', label:'Fastighetskostnader', href:'bastadkonto/'},
     {key:'projekt', icon:'✅', label:'Projekt', href:'bastadkonto/?tab=projects'},
   ]
   const el = document.getElementById('appSwitcher')
