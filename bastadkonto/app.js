@@ -642,7 +642,7 @@ function renderReport(){
   const yearEntries = state.entries.filter(e=>new Date(e.date).getFullYear()===reportYear)
 
   if(!yearEntries.length){
-    return `<div class="sh"><span class="sh-title">Rapport</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
+    return `<div class="sh"><span class="sh-title">Årsöversikt</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
       <p class="empty">Inga utlägg registrerade för ${reportYear}.</p>`
   }
 
@@ -707,7 +707,7 @@ function renderReport(){
     </div>`
   }).join('')
 
-  return `<div class="sh"><span class="sh-title">Rapport</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
+  return `<div class="sh"><span class="sh-title">Årsöversikt</span><select style="width:auto" onchange="setReportYear(this.value)">${yearOpts}</select></div>
     ${summary}
     <div class="sh" style="margin-top:4px"><span></span>${csvBtn}</div>
     ${categoryCard}${projectCard}${cards}`
