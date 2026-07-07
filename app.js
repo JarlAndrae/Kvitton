@@ -471,12 +471,10 @@ function lightbox(url){
 }
 
 // ── REPORT ────────────────────────────────────────────────────────────────────
-function renderReport(){
-  if(!state.selectedPeriodId) return '<p class="empty">Välj en period.</p>'
-  const receipts = periodReceipts()
-  if(!receipts.length) return '<p class="empty">Inga kvitton i perioden ännu.</p>'
-  const pfRows = periodFamilyRows()
-  if(!pfRows.length) return '<p class="empty">Ange hur många dagar varje familj är med (Perioder → Dagar).</p>'
+// ── RAPPORT-BERÄKNING (delas mellan Rapport-flik, periodkort och CSV-export) ──
+function computeReportData(periodId){
+  const receipts = state.receipts.filter(r=>r.period_id===periodId)
+  const pfRows = state.periodFamilies.filter(pf=>pf.period_id===periodId)
 
   const totMat = receipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
   const totVin = receipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
@@ -487,15 +485,15 @@ function renderReport(){
   const pfById = {}; pfRows.forEach(pf=>{ pfById[pf.family_id]=pf })
 
   let sumMandagar=0, sumVinMandagar=0
-  const famData = state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).map(f=>{
+  const famBase = state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).map(f=>{
     const days=pfMap[f.id]||0
     const guestDays=parseFloat(pfMap2[f.id]||0)
     const factor=effectiveFactor(pfById[f.id], f)
     const wineDrinkers=effectiveWineDrinkers(pfById[f.id], f)
-const mandagar=days*factor+guestDays
+    const mandagar=days*factor+guestDays
     const vinMandagar=days*wineDrinkers
     sumMandagar+=mandagar; sumVinMandagar+=vinMandagar
-    return {...f,days,guestDays,mandagar,vinMandagar}
+    return {id:f.id, name:f.name, days, guestDays, factor, wineDrinkers, mandagar, vinMandagar}
   })
 
   const paidMat={},paidVin={}
@@ -506,7 +504,7 @@ const mandagar=days*factor+guestDays
     paidVin[r.paid_by_family_id]=(paidVin[r.paid_by_family_id]||0)+(parseFloat(r.alcohol_amount)||0)
   })
 
-  const report = famData.map(f=>{
+  const famData = famBase.map(f=>{
     const andelMat=sumMandagar>0?f.mandagar/sumMandagar:0
     const andelVin=sumVinMandagar>0?f.vinMandagar/sumVinMandagar:0
     const kronorMat=totMat*andelMat
@@ -519,26 +517,72 @@ const mandagar=days*factor+guestDays
 
   const mandagskostnadMat=sumMandagar>0?totMat/sumMandagar:0
   const mandagskostnadVin=sumVinMandagar>0?totVin/sumVinMandagar:0
-  const totalVindrickare=famData.reduce((s,f)=>s+parseInt(f.wine_drinkers),0)
+  const totalVindrickare=famBase.reduce((s,f)=>s+f.wineDrinkers,0)
+
+  const payers = famData.filter(f=>f.diff < -0.5).map(f=>({name:f.name, owe: -f.diff}))
+  const receivers = famData.filter(f=>f.diff > 0.5).map(f=>({name:f.name, get: f.diff}))
+  const transactions = []
+  const payersCopy = payers.map(p=>({...p}))
+  const receiversCopy = receivers.map(r=>({...r}))
+  let pi=0, ri=0
+  while(pi < payersCopy.length && ri < receiversCopy.length){
+    const p = payersCopy[pi], r = receiversCopy[ri]
+    const amt = Math.min(p.owe, r.get)
+    if(amt > 0.5) transactions.push({from:p.name, to:r.name, amt})
+    p.owe -= amt; r.get -= amt
+    if(p.owe < 0.5) pi++
+    if(r.get < 0.5) ri++
+  }
+
+  return { receiptCount: receipts.length, hasPfRows: pfRows.length>0, totMat, totVin, totAlt, famData, sumMandagar, sumVinMandagar, mandagskostnadMat, mandagskostnadVin, totalVindrickare, transactions }
+}
+
+// Sparar en fryst ögonblicksbild på perioden så beloppen inte ändras retroaktivt efter avräkning.
+async function freezePeriodReport(periodId, data){
+  const period = state.periods.find(p=>p.id===periodId)
+  const json = JSON.stringify(data)
+  if(period) period.frozen_report = json
+  await sb.from('periods').update({frozen_report: json}).eq('id', periodId)
+}
+
+// Väljer fryst ögonblicksbild för avräknade perioder (och fryser i efterhand om den saknas), annars live-beräkning.
+function getReportData(period){
+  if(isLocked(period) && period.frozen_report){
+    try{ return JSON.parse(period.frozen_report) }catch(e){}
+  }
+  const data = computeReportData(period.id)
+  if(isLocked(period)) freezePeriodReport(period.id, data)
+  return data
+}
+
+function renderReport(){
+  if(!state.selectedPeriodId) return '<p class="empty">Välj en period.</p>'
+  const period = currentPeriod()
+  const locked = isLocked(period)
+  const data = getReportData(period)
+  if(!data.receiptCount) return '<p class="empty">Inga kvitton i perioden ännu.</p>'
+  if(!data.hasPfRows) return '<p class="empty">Ange hur många dagar varje familj är med (Perioder → Dagar).</p>'
+
+  const frozenBanner = locked ? `<div class="hint" style="background:var(--accent-light);color:var(--accent)">🔒 Perioden är avräknad – beloppen nedan är frysta från avräkningstillfället och påverkas inte av senare ändringar i familjer eller perioder.</div>` : ''
 
   const summary=`<div class="rep-summary">
     <div style="display:flex;justify-content:space-between;align-items:flex-end">
-      <div><h3>Totalt utlagt</h3><div class="rep-total-num">${fmt(totAlt)} kr</div></div>
-      <div style="text-align:right;font-size:12px;opacity:.8">${receipts.length} kvitton</div>
+      <div><h3>Totalt utlagt</h3><div class="rep-total-num">${fmt(data.totAlt)} kr</div></div>
+      <div style="text-align:right;font-size:12px;opacity:.8">${data.receiptCount} kvitton</div>
     </div>
     <div class="rep-divider">
-      <div class="rep-row"><span>🥗 Mat</span><span>${fmt(totMat)} kr</span></div>
-      <div class="rep-row"><span>🍷 Vin</span><span>${fmt(totVin)} kr</span></div>
+      <div class="rep-row"><span>🥗 Mat</span><span>${fmt(data.totMat)} kr</span></div>
+      <div class="rep-row"><span>🍷 Vin</span><span>${fmt(data.totVin)} kr</span></div>
     </div>
     <div class="rep-divider">
-      <div class="rep-row"><span>Mandagar totalt</span><span>${fmt(sumMandagar)}</span></div>
-      <div class="rep-row"><span>Kostnad/mandag mat</span><span>${fmt(mandagskostnadMat)} kr</span></div>
-      <div class="rep-row"><span>Kostnad/vindag</span><span>${fmt(mandagskostnadVin)} kr</span></div>
-      <div class="rep-row"><span>Vindrickare</span><span>${totalVindrickare} st</span></div>
+      <div class="rep-row"><span>Mandagar totalt</span><span>${fmt(data.sumMandagar)}</span></div>
+      <div class="rep-row"><span>Kostnad/mandag mat</span><span>${fmt(data.mandagskostnadMat)} kr</span></div>
+      <div class="rep-row"><span>Kostnad/vindag</span><span>${fmt(data.mandagskostnadVin)} kr</span></div>
+      <div class="rep-row"><span>Vindrickare</span><span>${data.totalVindrickare} st</span></div>
     </div>
   </div>`
 
-  const cards = report.map(f=>`<div class="fam-card">
+  const cards = data.famData.map(f=>`<div class="fam-card">
     <div class="fam-name">${esc(f.name)}</div>
     <div class="fam-row"><span>Dagar</span><span>${fmt(f.days,1)}</span></div>
     ${f.guestDays>0?`<div class="fam-row"><span>🧑‍🤝‍🧑 Gästdagar</span><span>+${fmt(f.guestDays,1)}</span></div>`:''}
@@ -557,27 +601,10 @@ const mandagar=days*factor+guestDays
     </div>
   </div>`).join('')
 
-  // ── Swish-beräkning ──
-  const payers = report.filter(f=>f.diff < -0.5).map(f=>({name:f.name, owe: -f.diff}))
-  const receivers = report.filter(f=>f.diff > 0.5).map(f=>({name:f.name, get: f.diff}))
-
-  const transactions = []
-  const payersCopy = payers.map(p=>({...p}))
-  const receiversCopy = receivers.map(r=>({...r}))
-  let pi=0, ri=0
-  while(pi < payersCopy.length && ri < receiversCopy.length){
-    const p = payersCopy[pi], r = receiversCopy[ri]
-    const amt = Math.min(p.owe, r.get)
-    if(amt > 0.5) transactions.push({from:p.name, to:r.name, amt})
-    p.owe -= amt; r.get -= amt
-    if(p.owe < 0.5) pi++
-    if(r.get < 0.5) ri++
-  }
-
-  const swishHtml = transactions.length ? `
+  const swishHtml = data.transactions.length ? `
     <div class="swish-box">
       <div class="swish-title">💸 Swish-instruktioner</div>
-      ${transactions.map(t=>`
+      ${data.transactions.map(t=>`
         <div class="swish-row">
           <span class="swish-from">${esc(t.from)}</span>
           <span style="color:var(--muted)">→</span>
@@ -588,31 +615,15 @@ const mandagar=days*factor+guestDays
 
   const csvBtn=`<button class="btn btn-g btn-sm" onclick="exportCSV()">⬇ CSV</button>`
 
-  return `<div class="sh"><span class="sh-title">Rapport</span>${csvBtn}</div>${summary}${swishHtml}${cards}`
+  return `<div class="sh"><span class="sh-title">Rapport</span>${csvBtn}</div>${frozenBanner}${summary}${swishHtml}${cards}`
 }
 
 function exportCSV(){
-  const receipts=periodReceipts(), pfRows=periodFamilyRows()
-  const pfMap={}; pfRows.forEach(pf=>{pfMap[pf.family_id]=parseFloat(pf.days)||0})
-  const pfMap2={}; pfRows.forEach(pf=>{pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0})
-  const pfById={}; pfRows.forEach(pf=>{pfById[pf.family_id]=pf})
-  let sumMandagar=0,sumVinMandagar=0
-  const totMat=receipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-  const totVin=receipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-  const famData=state.families.filter(f=>pfMap[f.id]>0).map(f=>{
-    const days=pfMap[f.id]||0,gd=parseFloat(pfMap2[f.id]||0)
-    const factor=effectiveFactor(pfById[f.id], f), wineDrinkers=effectiveWineDrinkers(pfById[f.id], f)
-    const mandagar=days*factor+gd,vinMandagar=days*wineDrinkers
-    sumMandagar+=mandagar;sumVinMandagar+=vinMandagar;return {...f,days,mandagar,vinMandagar}
-  })
-  const paidMat={},paidVin={}
-  state.families.forEach(f=>{paidMat[f.id]=0;paidVin[f.id]=0})
-  receipts.forEach(r=>{if(!r.paid_by_family_id)return;paidMat[r.paid_by_family_id]=(paidMat[r.paid_by_family_id]||0)+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0);paidVin[r.paid_by_family_id]=(paidVin[r.paid_by_family_id]||0)+(parseFloat(r.alcohol_amount)||0)})
+  const period = currentPeriod()
+  const data = getReportData(period)
   const rows=[['Familj','Dagar','Mandagar','Andel mat%','VinMandagar','Andel vin%','KronorMat','KronorVin','Ska betala','Utlagt','Diff']]
-  famData.forEach(f=>{
-    const aM=sumMandagar>0?f.mandagar/sumMandagar:0,aV=sumVinMandagar>0?f.vinMandagar/sumVinMandagar:0
-    const kM=totMat*aM,kV=totVin*aV,sk=kM+kV,ut=(paidMat[f.id]||0)+(paidVin[f.id]||0)
-    rows.push([f.name,fmt(f.days,1),fmt(f.mandagar,2),Math.round(aM*100),fmt(f.vinMandagar,1),Math.round(aV*100),fmt(kM),fmt(kV),fmt(sk),fmt(ut),fmt(ut-sk)])
+  data.famData.forEach(f=>{
+    rows.push([f.name,fmt(f.days,1),fmt(f.mandagar,2),f.andelMat,fmt(f.vinMandagar,1),f.andelVin,fmt(f.kronorMat),fmt(f.kronorVin),fmt(f.skalBetala),fmt(f.utlagt),fmt(f.utlagt-f.skalBetala)])
   })
   const csv=rows.map(r=>r.join(';')).join('\n')
   const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv)
@@ -705,25 +716,17 @@ function renderPeriods(){
       return `<span class="tag tag-clickable" onclick="editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label}${hasOverride?' ⚙️':''} ✏️</span>`
     }).join('')
     // Stats
-    const pReceipts = state.receipts.filter(r=>r.period_id===p.id)
-    const totMat = pReceipts.reduce((s,r)=>s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0),0)
-    const totVin = pReceipts.reduce((s,r)=>s+(parseFloat(r.alcohol_amount)||0),0)
-    const pfRows = entries
-    const pfMap = {}; pfRows.forEach(pf=>{ pfMap[pf.family_id]=parseFloat(pf.days)||0 })
-    const pfMap2 = {}; pfRows.forEach(pf=>{ pfMap2[pf.family_id]=parseFloat(pf.guest_days)||0 })
-    const pfById = {}; pfRows.forEach(pf=>{ pfById[pf.family_id]=pf })
-    let sumMandagar=0
-    state.families.filter(f=>pfMap[f.id]>0||pfMap2[f.id]>0).forEach(f=>{
-      sumMandagar += (pfMap[f.id]||0)*effectiveFactor(pfById[f.id], f)+(pfMap2[f.id]||0)
-    })
-    const mkMat = sumMandagar>0 ? totMat/sumMandagar : 0
-    const mkVin = sumMandagar>0 ? totVin/sumMandagar : 0
-    const statsHtml = pReceipts.length ? `
+    const statsData = getReportData(p)
+    const totMat = statsData.totMat
+    const totVin = statsData.totVin
+    const mkMat = statsData.sumMandagar>0 ? totMat/statsData.sumMandagar : 0
+    const mkVin = statsData.sumMandagar>0 ? totVin/statsData.sumMandagar : 0
+    const statsHtml = statsData.receiptCount ? `
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted)">
-        <span>${pReceipts.length} kvitton</span>
+        <span>${statsData.receiptCount} kvitton</span>
         <span>🥗 ${fmt(totMat)} kr</span>
         <span>🍷 ${fmt(totVin)} kr</span>
-        ${sumMandagar>0?`<span>⚖️ ${fmt(mkMat)}/mandag mat · ${fmt(mkVin)}/mandag vin</span>`:''}
+        ${statsData.sumMandagar>0?`<span>⚖️ ${fmt(mkMat)}/mandag mat · ${fmt(mkVin)}/mandag vin</span>`:''}
       </div>` : ''
     const statusBadge = locked
       ? `<span class="badge badge-lock">🔒 Avräknad</span>`
@@ -754,13 +757,14 @@ function renderPeriods(){
 }
 
 async function lockPeriod(id){
-  if(!confirm('Avräkna perioden? Det går inte längre att lägga till nya kvitton (du kan låsa upp den igen senare).')) return
-  await sb.from('periods').update({status:'avräknad'}).eq('id',id)
+  if(!confirm('Avräkna perioden? Det går inte längre att lägga till nya kvitton (du kan låsa upp den igen senare). Beloppen fryses vid avräkningen.')) return
+  const data = computeReportData(id)
+  await sb.from('periods').update({status:'avräknad', frozen_report: JSON.stringify(data)}).eq('id',id)
   await init()
 }
 
 async function unlockPeriod(id){
-  if(!confirm('Lås upp perioden så att kvitton kan läggas till igen?')) return
+  if(!confirm('Lås upp perioden så att kvitton kan läggas till igen? Rapporten räknas då live igen tills du avräknar perioden på nytt.')) return
   await sb.from('periods').update({status:'aktiv'}).eq('id',id)
   await init()
 }
