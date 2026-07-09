@@ -424,6 +424,7 @@ async function saveEntry(){
 function editEntry(id){
   const e = state.entries.find(e=>e.id===id)
   if(!e) return
+  selectedPhotoFile = null
   const projectOptions = state.projects.map(p=>`<option value="${p.id}" ${p.id===e.project_id?'selected':''}>${esc(p.title)}</option>`).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
@@ -432,7 +433,11 @@ function editEntry(id){
       <div class="fg"><label>Vem</label><select id="ee-person">${state.people.map(p=>`<option value="${p.id}" ${p.id===e.person_id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>Datum</label><input type="date" id="ee-date" value="${e.date}"/></div>
     </div>
-    ${e.image_url?`<div class="fg"><label>Kvittobild</label><img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer"/></div>`:''}
+    <div class="fg"><label>Kvittobild</label>
+      <div id="ee-photo-preview">${e.image_url?`<img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;display:block;margin-bottom:6px"/>`:''}</div>
+      <input type="file" id="ee-photo" accept="image/*" capture="environment" onchange="handleEditPhotoSelect(event)"/>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${e.image_url?'Välj en ny bild för att byta ut den nuvarande.':'Lägg till en kvittobild (valfritt).'}</div>
+    </div>
     <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ee-desc">${esc(e.description)}</textarea></div>
     <div class="fr">
       <div class="fg"><label>Belopp (kr)</label><input type="number" id="ee-amount" min="0" step="1" value="${e.amount}"/></div>
@@ -443,11 +448,21 @@ function editEntry(id){
       </div>
     </div>
     <div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ee-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>
+    <div id="ee-status" style="margin-bottom:8px;font-size:13px;color:var(--accent)"></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="updateEntry('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
+}
+
+function handleEditPhotoSelect(event){
+  const file = event.target.files[0]
+  if(!file) return
+  selectedPhotoFile = file
+  const previewUrl = URL.createObjectURL(file)
+  const preview = document.getElementById('ee-photo-preview')
+  if(preview) preview.innerHTML = `<img src="${previewUrl}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block;margin-bottom:6px"/>`
 }
 
 async function updateEntry(id){
@@ -457,8 +472,16 @@ async function updateEntry(id){
   const amount = parseFloat(document.getElementById('ee-amount').value)||0
   const category = document.getElementById('ee-category').value.trim() || null
   const projectId = document.getElementById('ee-project').value || null
-  if(!desc||!amount){ alert('Fyll i beskrivning och belopp.'); return }
-  await sb.from('house_entries').update({ person_id:personId, date, description:desc, amount, category, project_id:projectId }).eq('id',id)
+  const statusEl = document.getElementById('ee-status')
+  if(!desc||!amount){ if(statusEl) statusEl.textContent='Fyll i beskrivning och belopp.'; return }
+  const payload = { person_id:personId, date, description:desc, amount, category, project_id:projectId }
+  if(selectedPhotoFile){
+    if(statusEl) statusEl.textContent='Laddar upp ny bild…'
+    try{ payload.image_url = await uploadReceiptPhoto(selectedPhotoFile) }
+    catch(err){ if(statusEl) statusEl.textContent='Kunde inte ladda upp bilden: '+err.message; return }
+  }
+  await sb.from('house_entries').update(payload).eq('id',id)
+  selectedPhotoFile = null
   closeModal(); await init()
 }
 
