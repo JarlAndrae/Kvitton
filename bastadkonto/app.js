@@ -520,7 +520,7 @@ function renderPeople(){
   const cards = state.people.map(p=>{
     const entries = state.entries.filter(e=>e.person_id===p.id)
     const unpaidCount = entries.filter(e=>!e.paid_date).length
-    return `<div class="card">
+    return `<div class="card" onclick="editPerson('${p.id}')" style="cursor:pointer">
       <div class="card-hdr">
         <div>
           <div class="card-title">${esc(p.name)}</div>
@@ -528,8 +528,7 @@ function renderPeople(){
           <div class="card-sub">${entries.length} utlägg${unpaidCount?` · ${unpaidCount} obetalda`:''}</div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-g btn-sm" onclick="editPerson('${p.id}')">Redigera</button>
-          <button class="btn btn-d btn-sm" onclick="delPerson('${p.id}')">Ta bort</button>
+          <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delPerson('${p.id}')">Ta bort</button>
         </div>
       </div>
     </div>`
@@ -590,7 +589,7 @@ function renderProjects(){
     const linked = state.entries.filter(e=>e.project_id===p.id)
     const total = linked.reduce((s,e)=>s+(parseFloat(e.amount)||0),0)
     const info = projectStatusInfo(p.status)
-    return `<div class="card">
+    return `<div class="card" onclick="editProject('${p.id}')" style="cursor:pointer">
       <div class="card-hdr">
         <div>
           <div class="card-title">${esc(p.title)}</div>
@@ -599,8 +598,7 @@ function renderProjects(){
         </div>
         <div class="btn-row" style="flex-direction:column;align-items:flex-end">
           <span class="badge ${info.cls}">${esc(info.label)}</span>
-          <button class="btn btn-g btn-sm" onclick="editProject('${p.id}')">Redigera</button>
-          <button class="btn btn-d btn-sm" onclick="delProject('${p.id}')">Ta bort</button>
+          <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delProject('${p.id}')">Ta bort</button>
         </div>
       </div>
     </div>`
