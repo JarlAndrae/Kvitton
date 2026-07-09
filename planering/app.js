@@ -147,15 +147,14 @@ function openModal(html){ document.getElementById('modal').innerHTML=html; docum
 function renderPlatser(){
   const cards = state.platser.map(pl=>{
     const vistCount = state.vistelser.filter(v=>v.plats_id===pl.id).length
-    return `<div class="card">
+    return `<div class="card" onclick="editPlats('${pl.id}')" style="cursor:pointer">
       <div class="card-hdr">
         <div>
           <div class="card-title">${esc(pl.name)}${pl.recurring?' <span class="tag">🔁 Återkommande</span>':''}</div>
           <div class="card-sub">${vistCount} vistelse${vistCount===1?'':'r'} inplanerade</div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-g btn-sm" onclick="editPlats('${pl.id}')">Redigera</button>
-          <button class="btn btn-d btn-sm" onclick="delPlats('${pl.id}')">Ta bort</button>
+          <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delPlats('${pl.id}')">Ta bort</button>
         </div>
       </div>
     </div>`
@@ -406,14 +405,13 @@ function renderKalender(){
     </div>`
   }).join('') : '<p class="empty">Inga vistelser inplanerade för det här stället ännu.</p>'
 
-  const listHtml = vistelser.map(v=>`<div class="slim-row">
+  const listHtml = vistelser.map(v=>`<div class="slim-row" onclick="editVistelse('${v.id}')" style="cursor:pointer">
     <div style="flex:1;min-width:0">
       <div class="slim-desc">${esc(famName(v.family_id))}</div>
       <div class="slim-sub">${fmtDateY(v.starts_at)} – ${fmtDateY(v.ends_at)}${v.person_count_override!=null?' · 👤 '+v.person_count_override+' pers (avviker)':''}${v.note?' · '+esc(v.note):''}</div>
     </div>
     <div class="slim-actions">
-      <button class="btn btn-g btn-sm" onclick="editVistelse('${v.id}')">✏️</button>
-      <button class="btn btn-d btn-sm" onclick="delVistelse('${v.id}')">✕</button>
+      <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delVistelse('${v.id}')">✕</button>
     </div>
   </div>`).join('')
 
