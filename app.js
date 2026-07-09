@@ -372,7 +372,7 @@ function renderReceipts(){
   const rows = filtered.map(r=>{
     const paidBy = famName(r.paid_by_family_id)
     const wine = r.alcohol_amount > 0
-    return `<div class="slim-row" onclick="editReceipt('${r.id}')" style="cursor:pointer">
+    return `<div class="slim-row" ${locked?'':`onclick="editReceipt('${r.id}')" style="cursor:pointer"`}>
       <div style="flex:1;min-width:0">
         <div class="slim-desc">${wine?'🍷 ':'🥗 '}${esc(r.description)}</div>
         <div class="slim-sub">${fmtDate(r.date)}${!receiptFilter&&paidBy?' · '+esc(paidBy):''}</div>
@@ -381,7 +381,7 @@ function renderReceipts(){
         <div class="slim-amt">${fmt(r.total_amount)} kr</div>
       </div>
       <div class="slim-actions">
-        <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delReceipt('${r.id}')">✕</button>
+        ${locked?'':`<button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delReceipt('${r.id}')">✕</button>`}
       </div>
     </div>`
   }).join('')
@@ -415,6 +415,8 @@ function setReceiptType(type){
 function editReceipt(id){
   const r = state.receipts.find(r=>r.id===id)
   if(!r) return
+  const period = state.periods.find(p=>p.id===r.period_id)
+  if(isLocked(period)){ alert('Perioden är avräknad. Lås upp den under fliken Perioder för att kunna redigera kvitton.'); return }
   const isWine = r.alcohol_amount > 0
   const periodFamIds = new Set(state.periodFamilies.filter(pf=>pf.period_id===r.period_id).map(pf=>pf.family_id))
   const famOpts = state.families.filter(f=>periodFamIds.has(f.id) || f.id===r.paid_by_family_id).map(f=>`<option value="${f.id}" ${f.id===r.paid_by_family_id?'selected':''}>${esc(f.name)}</option>`).join('')
@@ -458,6 +460,9 @@ async function updateReceipt(id){
 }
 
 async function delReceipt(id){
+  const r = state.receipts.find(r=>r.id===id)
+  const period = r ? state.periods.find(p=>p.id===r.period_id) : null
+  if(isLocked(period)){ alert('Perioden är avräknad. Lås upp den under fliken Perioder för att kunna ta bort kvitton.'); return }
   if(!confirm('Ta bort kvittot?')) return
   await sb.from('receipts').delete().eq('id',id)
   await init()
@@ -711,7 +716,7 @@ function renderPeriods(){
       const label = dagar > 0 || gast > 0
         ? `${fmt(dagar,1)} dagar${gast>0?' (+'+fmt(gast,1)+' gäst)':''}`
         : '0 dagar'
-      return `<span class="tag tag-clickable" onclick="event.stopPropagation(); editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label}${hasOverride?' ⚙️':''} ✏️</span>`
+      return `<span class="tag ${locked?'':'tag-clickable'}" ${locked?'':`onclick="event.stopPropagation(); editFamilyDays('${p.id}','${f.id}')"`}>${esc(f.name)}: ${label}${hasOverride?' ⚙️':''}${locked?'':' ✏️'}</span>`
     }).join('')
     // Stats
     const statsData = getReportData(p)
@@ -733,7 +738,7 @@ function renderPeriods(){
     const lockBtn = locked
       ? `<button class="btn btn-g btn-sm" onclick="event.stopPropagation(); unlockPeriod('${p.id}')">🔓 Lås upp</button>`
       : `<button class="btn btn-w btn-sm" onclick="event.stopPropagation(); lockPeriod('${p.id}')">🔒 Avräkna</button>`
-    return `<div class="card" onclick="editPeriodDates('${p.id}')" style="cursor:pointer">
+    return `<div class="card" ${locked?'':`onclick="editPeriodDates('${p.id}')" style="cursor:pointer"`}>
       <div class="card-hdr">
         <div style="flex:1">
           <div class="card-title">${esc(p.name)} ${statusBadge} ${platsBadge}</div>
@@ -923,6 +928,7 @@ async function saveEditDays(){
 function editPeriodDates(periodId){
   const p = state.periods.find(p=>p.id===periodId)
   if(!p) return
+  if(isLocked(p)){ alert('Perioden är avräknad. Lås upp den under fliken Perioder för att kunna redigera den.'); return }
   const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
   const existingFamIds = existing.map(e=>e.family_id)
   const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===p.plats_id?'selected':''}>${pl.recurring?'🔁 ':''}${esc(pl.name)}</option>`).join('')
@@ -1020,6 +1026,8 @@ async function savePeriodDates(periodId){
 }
 
 function editFamilyDays(periodId, familyId){
+  const periodCheck = state.periods.find(p=>p.id===periodId)
+  if(isLocked(periodCheck)){ alert('Perioden är avräknad. Lås upp den under fliken Perioder för att kunna ändra dagar.'); return }
   editDaysPeriodId = periodId
   const period = state.periods.find(p=>p.id===periodId)
   const existing = state.periodFamilies.filter(pf=>pf.period_id===periodId)
