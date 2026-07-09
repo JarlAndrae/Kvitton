@@ -324,7 +324,7 @@ function renderEntries(){
 
   const rows = filtered.map(e=>{
     const paid = !!e.paid_date
-    return `<div class="slim-row">
+    return `<div class="slim-row" onclick="editEntry('${e.id}')" style="cursor:pointer">
       <div style="flex:1;min-width:0">
         <div class="slim-desc">${esc(e.description)}</div>
         <div class="slim-sub">${esc(personName(e.person_id))} · ${fmtDate(e.date)}${e.category?' · '+esc(e.category):''}${e.project_id?' · ✅ '+esc(projectName(e.project_id)):''}</div>
@@ -334,12 +334,11 @@ function renderEntries(){
         <span class="badge ${paid?'badge-paid':'badge-unpaid'}" style="margin-top:2px">${paid?'✅ Reglerat':'🟡 Oreglerat'}</span>
       </div>
       <div class="slim-actions">
-        ${e.image_url?`<button class="btn btn-g btn-sm" onclick="lightbox('${esc(e.image_url)}')" title="Visa kvitto">📷</button>`:''}
+        ${e.image_url?`<button class="btn btn-g btn-sm" onclick="event.stopPropagation(); lightbox('${esc(e.image_url)}')" title="Visa kvitto">📷</button>`:''}
         ${paid
-          ? `<button class="btn btn-g btn-sm" onclick="unmarkPaid('${e.id}')" title="Ångra">↩</button>`
-          : `<button class="btn btn-gold btn-sm" onclick="markPaidModal('${e.id}')" title="Markera reglerat">💰</button>`}
-        <button class="btn btn-g btn-sm" onclick="editEntry('${e.id}')">✏️</button>
-        <button class="btn btn-d btn-sm" onclick="delEntry('${e.id}')">✕</button>
+          ? `<button class="btn btn-g btn-sm" onclick="event.stopPropagation(); unmarkPaid('${e.id}')" title="Ångra">↩</button>`
+          : `<button class="btn btn-gold btn-sm" onclick="event.stopPropagation(); markPaidModal('${e.id}')" title="Markera reglerat">💰</button>`}
+        <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delEntry('${e.id}')">✕</button>
       </div>
     </div>`
   }).join('')
