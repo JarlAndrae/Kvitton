@@ -372,7 +372,7 @@ function renderReceipts(){
   const rows = filtered.map(r=>{
     const paidBy = famName(r.paid_by_family_id)
     const wine = r.alcohol_amount > 0
-    return `<div class="slim-row">
+    return `<div class="slim-row" onclick="editReceipt('${r.id}')" style="cursor:pointer">
       <div style="flex:1;min-width:0">
         <div class="slim-desc">${wine?'🍷 ':'🥗 '}${esc(r.description)}</div>
         <div class="slim-sub">${fmtDate(r.date)}${!receiptFilter&&paidBy?' · '+esc(paidBy):''}</div>
@@ -381,8 +381,7 @@ function renderReceipts(){
         <div class="slim-amt">${fmt(r.total_amount)} kr</div>
       </div>
       <div class="slim-actions">
-        <button class="btn btn-g btn-sm" onclick="editReceipt('${r.id}')">✏️</button>
-        <button class="btn btn-d btn-sm" onclick="delReceipt('${r.id}')">✕</button>
+        <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delReceipt('${r.id}')">✕</button>
       </div>
     </div>`
   }).join('')
@@ -638,7 +637,7 @@ function renderFamilies(){
   const chips = `<div class="filter-chips">
     <span class="chip ${hideTemporaryFamilies?'on':''}" onclick="toggleHideTemporary()">Dölj tillfälliga</span>
   </div>`
-  const cards = visible.map(f=>`<div class="card">
+  const cards = visible.map(f=>`<div class="card" onclick="editFamily('${f.id}')" style="cursor:pointer">
     <div class="card-hdr">
       <div>
         <div class="card-title">${esc(f.name)}${f.is_temporary?' <span class="tag">Tillfällig</span>':''}</div>
@@ -647,8 +646,7 @@ function renderFamilies(){
         <div class="card-sub">🍷 ${f.wine_drinkers} vindrickare</div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-g btn-sm" onclick="editFamily('${f.id}')">Redigera</button>
-        <button class="btn btn-d btn-sm" onclick="delFamily('${f.id}')">Ta bort</button>
+        <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delFamily('${f.id}')">Ta bort</button>
       </div>
     </div>
   </div>`).join('')
@@ -713,7 +711,7 @@ function renderPeriods(){
       const label = dagar > 0 || gast > 0
         ? `${fmt(dagar,1)} dagar${gast>0?' (+'+fmt(gast,1)+' gäst)':''}`
         : '0 dagar'
-      return `<span class="tag tag-clickable" onclick="editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label}${hasOverride?' ⚙️':''} ✏️</span>`
+      return `<span class="tag tag-clickable" onclick="event.stopPropagation(); editFamilyDays('${p.id}','${f.id}')">${esc(f.name)}: ${label}${hasOverride?' ⚙️':''} ✏️</span>`
     }).join('')
     // Stats
     const statsData = getReportData(p)
@@ -733,9 +731,9 @@ function renderPeriods(){
       : `<span class="badge badge-active">Aktiv</span>`
     const platsBadge = p.plats_id ? `<span class="badge" style="background:var(--accent-light);color:var(--accent)">📍 ${esc(platsName(p.plats_id))}</span>` : ''
     const lockBtn = locked
-      ? `<button class="btn btn-g btn-sm" onclick="unlockPeriod('${p.id}')">🔓 Lås upp</button>`
-      : `<button class="btn btn-w btn-sm" onclick="lockPeriod('${p.id}')">🔒 Avräkna</button>`
-    return `<div class="card">
+      ? `<button class="btn btn-g btn-sm" onclick="event.stopPropagation(); unlockPeriod('${p.id}')">🔓 Lås upp</button>`
+      : `<button class="btn btn-w btn-sm" onclick="event.stopPropagation(); lockPeriod('${p.id}')">🔒 Avräkna</button>`
+    return `<div class="card" onclick="editPeriodDates('${p.id}')" style="cursor:pointer">
       <div class="card-hdr">
         <div style="flex:1">
           <div class="card-title">${esc(p.name)} ${statusBadge} ${platsBadge}</div>
@@ -744,10 +742,9 @@ function renderPeriods(){
           <div class="tags" style="margin-top:6px">${famDayTags}</div>
         </div>
         <div class="btn-row" style="flex-direction:column;align-items:flex-end">
-          <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}')">Välj</button>
-          <button class="btn btn-g btn-sm" onclick="editPeriodDates('${p.id}')">Redigera</button>
+          <button class="btn btn-g btn-sm" onclick="event.stopPropagation(); selectPeriod('${p.id}')">Välj</button>
           ${lockBtn}
-          <button class="btn btn-d btn-sm" onclick="delPeriod('${p.id}')">Ta bort</button>
+          <button class="btn btn-d btn-sm" onclick="event.stopPropagation(); delPeriod('${p.id}')">Ta bort</button>
         </div>
       </div>
     </div>`
