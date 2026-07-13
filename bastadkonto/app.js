@@ -169,6 +169,25 @@ function lightbox(url){
   </div>`)
 }
 
+// ── FORMULÄRSTATUS (felmeddelanden ska INTE gå att missa) ─────────────────────
+function setFormStatus(el, msg, isError){
+  if(!el) return
+  el.textContent = msg
+  if(isError){
+    el.style.color = 'var(--danger)'
+    el.style.fontWeight = '700'
+    el.style.background = 'var(--danger-light)'
+    el.style.borderRadius = '8px'
+    el.style.padding = '8px 10px'
+    if(el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'center'})
+  } else {
+    el.style.color = 'var(--accent)'
+    el.style.fontWeight = '400'
+    el.style.background = 'transparent'
+    el.style.padding = '0'
+  }
+}
+
 // ── FOTO & TOLKNING ────────────────────────────────────────────────────────────
 async function handlePhotoSelect(event, prefix){
   const file = event.target.files[0]
@@ -372,7 +391,7 @@ function newEntryModal(){
       <div class="fg"><label>Datum</label><input type="date" id="ne-date" value="${today()}"/></div>
     </div>
     <div class="fg"><label>Foto på kvittot (valfritt – försöker läsa av belopp/datum)</label>
-      <input type="file" id="ne-photo" accept="image/*" capture="environment" onchange="handlePhotoSelect(event,'ne')"/>
+      <input type="file" id="ne-photo" accept="image/*" onchange="handlePhotoSelect(event,'ne')"/>
       <div id="ne-photo-preview"></div>
       <div id="ne-ocr-status" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
     </div>
@@ -386,7 +405,7 @@ function newEntryModal(){
       </div>
     </div>
     ${state.projects.length ? `<div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ne-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>` : ''}
-    <div id="ne-status" style="margin-bottom:8px;font-size:13px;color:var(--accent)"></div>
+    <div id="ne-status" style="margin-bottom:8px;font-size:13px;color:var(--accent);min-height:16px"></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveEntry()">💾 Registrera utlägg</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -403,15 +422,15 @@ async function saveEntry(){
   const projectEl = document.getElementById('ne-project')
   const projectId = projectEl ? (projectEl.value || null) : null
   const statusEl = document.getElementById('ne-status')
-  if(!personId){ statusEl.textContent='Välj vem.'; return }
-  if(!desc){ statusEl.textContent='Beskriv vad utlägget avser.'; return }
-  if(!amount){ statusEl.textContent='Ange ett belopp.'; return }
-  statusEl.textContent='Sparar…'
+  if(!personId){ setFormStatus(statusEl, 'Välj vem.', true); return }
+  if(!desc){ setFormStatus(statusEl, 'Beskriv vad utlägget avser.', true); return }
+  if(!amount){ setFormStatus(statusEl, 'Ange ett belopp.', true); return }
+  setFormStatus(statusEl, 'Sparar…', false)
   let imageUrl = null
   if(selectedPhotoFile){
-    statusEl.textContent='Laddar upp bild…'
+    setFormStatus(statusEl, 'Laddar upp bild…', false)
     try{ imageUrl = await uploadReceiptPhoto(selectedPhotoFile) }
-    catch(err){ statusEl.textContent='Kunde inte ladda upp bilden: '+err.message; return }
+    catch(err){ setFormStatus(statusEl, 'Kunde inte ladda upp bilden: '+err.message, true); return }
   }
   await sb.from('house_entries').insert({ person_id:personId, date, description:desc, amount, category, image_url:imageUrl, paid_date:null, project_id:projectId })
   selectedPhotoFile = null
@@ -434,7 +453,7 @@ function editEntry(id){
     </div>
     <div class="fg"><label>Kvittobild</label>
       <div id="ee-photo-preview">${e.image_url?`<img src="${esc(e.image_url)}" onclick="lightbox('${esc(e.image_url)}')" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;display:block;margin-bottom:6px"/>`:''}</div>
-      <input type="file" id="ee-photo" accept="image/*" capture="environment" onchange="handleEditPhotoSelect(event)"/>
+      <input type="file" id="ee-photo" accept="image/*" onchange="handleEditPhotoSelect(event)"/>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">${e.image_url?'Välj en ny bild för att byta ut den nuvarande.':'Lägg till en kvittobild (valfritt).'}</div>
     </div>
     <div class="fg"><label>Vad köptes / betaldes</label><textarea id="ee-desc">${esc(e.description)}</textarea></div>
@@ -447,7 +466,7 @@ function editEntry(id){
       </div>
     </div>
     <div class="fg"><label>Koppla till projekt (valfritt)</label><select id="ee-project"><option value="">– inget projekt –</option>${projectOptions}</select></div>
-    <div id="ee-status" style="margin-bottom:8px;font-size:13px;color:var(--accent)"></div>
+    <div id="ee-status" style="margin-bottom:8px;font-size:13px;color:var(--accent);min-height:16px"></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="updateEntry('${id}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -472,12 +491,12 @@ async function updateEntry(id){
   const category = document.getElementById('ee-category').value.trim() || null
   const projectId = document.getElementById('ee-project').value || null
   const statusEl = document.getElementById('ee-status')
-  if(!desc||!amount){ if(statusEl) statusEl.textContent='Fyll i beskrivning och belopp.'; return }
+  if(!desc||!amount){ setFormStatus(statusEl, 'Fyll i beskrivning och belopp.', true); return }
   const payload = { person_id:personId, date, description:desc, amount, category, project_id:projectId }
   if(selectedPhotoFile){
-    if(statusEl) statusEl.textContent='Laddar upp ny bild…'
+    setFormStatus(statusEl, 'Laddar upp ny bild…', false)
     try{ payload.image_url = await uploadReceiptPhoto(selectedPhotoFile) }
-    catch(err){ if(statusEl) statusEl.textContent='Kunde inte ladda upp bilden: '+err.message; return }
+    catch(err){ setFormStatus(statusEl, 'Kunde inte ladda upp bilden: '+err.message, true); return }
   }
   await sb.from('house_entries').update(payload).eq('id',id)
   selectedPhotoFile = null
