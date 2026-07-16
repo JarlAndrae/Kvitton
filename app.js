@@ -723,13 +723,13 @@ function renderPeriods(){
     const totMat = statsData.totMat
     const totVin = statsData.totVin
     const mkMat = statsData.sumMandagar>0 ? totMat/statsData.sumMandagar : 0
-    const mkVin = statsData.sumMandagar>0 ? totVin/statsData.sumMandagar : 0
+    const mkVin = statsData.sumVinMandagar>0 ? totVin/statsData.sumVinMandagar : 0
     const statsHtml = statsData.receiptCount ? `
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted)">
         <span>${statsData.receiptCount} kvitton</span>
         <span>🥗 ${fmt(totMat)} kr</span>
         <span>🍷 ${fmt(totVin)} kr</span>
-        ${statsData.sumMandagar>0?`<span>⚖️ ${fmt(mkMat)}/mandag mat · ${fmt(mkVin)}/mandag vin</span>`:''}
+        ${statsData.sumMandagar>0?`<span>⚖️ ${fmt(mkMat)}/mandag mat${statsData.sumVinMandagar>0?` · ${fmt(mkVin)}/mandag vin`:''}</span>`:''}
       </div>` : ''
     const statusBadge = locked
       ? `<span class="badge badge-lock">🔒 Avräknad</span>`
