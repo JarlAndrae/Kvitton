@@ -322,7 +322,7 @@ function renderActive(){
 function renderMallar(){
   const cards = state.templates.map(function(t){
     const members = state.templateMembers.filter(function(m){ return m.template_id===t.id }).sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0) })
-    const rows = members.map(function(m){ return '<div class="card-sub">'+esc(m.name)+' · faktor '+fmt(m.factor,2)+(m.wine_drinker?' · 🍷':'')+'</div>' }).join('')
+    const rows = members.map(function(m){ return '<div class="card-sub">'+esc(m.name)+' · faktor-mat '+fmt(m.factor_mat,2)+' · faktor-vin '+fmt(m.factor_vin,2)+'</div>' }).join('')
     return `<div class="card">
       <div class="card-hdr">
         <div>
@@ -346,30 +346,30 @@ let templateEditId = null
 
 function newTemplateModal(){
   templateEditId = null
-  templateEditMembers = [{name:'',factor:1,wine_drinker:false}]
+  templateEditMembers = [{name:'',factor_mat:1,factor_vin:0}]
   renderTemplateModal('')
 }
 function editTemplateModal(id){
   templateEditId = id
   const t = state.templates.find(function(x){ return x.id===id })
-  templateEditMembers = state.templateMembers.filter(function(m){ return m.template_id===id }).sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0) }).map(function(m){ return {name:m.name,factor:m.factor,wine_drinker:m.wine_drinker} })
-  if(!templateEditMembers.length) templateEditMembers=[{name:'',factor:1,wine_drinker:false}]
+  templateEditMembers = state.templateMembers.filter(function(m){ return m.template_id===id }).sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0) }).map(function(m){ return {name:m.name,factor_mat:m.factor_mat,factor_vin:m.factor_vin} })
+  if(!templateEditMembers.length) templateEditMembers=[{name:'',factor_mat:1,factor_vin:0}]
   renderTemplateModal(t?t.name:'')
 }
 
 function renderTemplateModal(name){
   const rows = templateEditMembers.map(function(m,i){ return `<div class="fr" style="align-items:center;gap:6px;margin-bottom:6px">
     <input placeholder="Namn" value="${esc(m.name)}" oninput="templateEditMembers[${i}].name=this.value" style="flex:2"/>
-    <input type="number" step="0.05" min="0" value="${m.factor}" oninput="templateEditMembers[${i}].factor=parseFloat(this.value)||0" style="flex:1" title="Faktor"/>
-    <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" style="width:auto" ${m.wine_drinker?'checked':''} onchange="templateEditMembers[${i}].wine_drinker=this.checked"/>🍷</label>
+    <input type="number" step="0.05" min="0" value="${m.factor_mat}" oninput="templateEditMembers[${i}].factor_mat=parseFloat(this.value)||0" style="flex:1" title="Faktor-mat"/>
+    <input type="number" step="0.05" min="0" value="${m.factor_vin}" oninput="templateEditMembers[${i}].factor_vin=parseFloat(this.value)||0" style="flex:1" title="Faktor-vin"/>
     <button class="btn btn-d btn-sm" onclick="templateEditMembers.splice(${i},1);renderTemplateModal(document.getElementById('t-name').value)">✕</button>
   </div>` }).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">${templateEditId?'Redigera mall':'Ny mall'}</div>
     <div class="fg"><label>Namn på familj</label><input id="t-name" value="${esc(name)}" placeholder="t.ex. J+S" autofocus/></div>
-    <div class="fg"><label>Medlemmar</label>${rows}
-      <button class="btn btn-g btn-sm" onclick="templateEditMembers.push({name:'',factor:1,wine_drinker:false});renderTemplateModal(document.getElementById('t-name').value)">+ Lägg till medlem</button>
+    <div class="fg"><label>Medlemmar <span style="font-weight:400;color:var(--muted)">(namn · faktor-mat · faktor-vin)</span></label>${rows}
+      <button class="btn btn-g btn-sm" onclick="templateEditMembers.push({name:'',factor_mat:1,factor_vin:0});renderTemplateModal(document.getElementById('t-name').value)">+ Lägg till medlem</button>
     </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveTemplate()">Spara</button>
@@ -392,7 +392,7 @@ async function saveTemplate(){
     if(res.error){ alert('Kunde inte spara mallen: '+res.error.message); return }
     templateId = res.data.id
   }
-  const rows = members.map(function(m,i){ return {template_id:templateId, klan_id:currentKlanId, name:m.name.trim(), factor:m.factor||1, wine_drinker:!!m.wine_drinker, sort_order:i} })
+  const rows = members.map(function(m,i){ return {template_id:templateId, klan_id:currentKlanId, name:m.name.trim(), factor_mat: isNaN(parseFloat(m.factor_mat))?1:parseFloat(m.factor_mat), factor_vin: isNaN(parseFloat(m.factor_vin))?0:parseFloat(m.factor_vin), sort_order:i} })
   const res2 = await sb.from('template_members').insert(rows)
   if(res2.error){ alert('Kunde inte spara medlemmar: '+res2.error.message); return }
   closeModal(); await init()
@@ -511,7 +511,7 @@ async function savePeriod(){
     const pf = res2.data
     const members = state.templateMembers.filter(function(m){ return m.template_id===t.id })
     if(members.length){
-      await sb.from('period_members').insert(members.map(function(m,i){ return {period_family_id:pf.id, klan_id:currentKlanId, name:m.name, factor:m.factor, wine_drinker:m.wine_drinker, is_guest:false, days_mode:'all', day_states:[], sort_order:i} }))
+      await sb.from('period_members').insert(members.map(function(m,i){ return {period_family_id:pf.id, klan_id:currentKlanId, name:m.name, factor_mat:m.factor_mat, factor_vin:m.factor_vin, is_guest:false, days_mode:'all', day_states:[], sort_order:i} }))
     }
   }
   state.selectedPeriodId = p.id
@@ -597,7 +597,7 @@ function openPeriodFamiliesModal(periodId){
       const d = memberDays(m, dates)
       const dayBadge = m.days_mode==='all' ? 'Alla dagar' : fmt(d,1)+' dagar'
       return `<div class="fr" style="align-items:center;gap:6px;padding:4px 0;border-top:1px solid var(--border,#eee)">
-        <div style="flex:1;font-size:13px">${esc(m.name)}${m.is_guest?' <span class="tag">Gäst</span>':''}<div class="card-sub">faktor ${fmt(m.factor,2)}${m.wine_drinker?' · 🍷':''}</div></div>
+        <div style="flex:1;font-size:13px">${esc(m.name)}${m.is_guest?' <span class="tag">Gäst</span>':''}<div class="card-sub">faktor-mat ${fmt(m.factor_mat,2)} · faktor-vin ${fmt(m.factor_vin,2)}</div></div>
         <span class="tag tag-clickable" onclick="openMemberDaysModal('${periodId}','${m.id}')">${dayBadge} ✏️</span>
         <button class="btn btn-g btn-sm" onclick="editMemberModal('${periodId}','${m.id}')">✏️</button>
         <button class="btn btn-d btn-sm" onclick="delMember('${periodId}','${m.id}')">✕</button>
@@ -641,7 +641,7 @@ async function addTemplateToPeriod(periodId){
   const pf = res.data
   const members = state.templateMembers.filter(function(m){ return m.template_id===t.id })
   if(members.length){
-    await sb.from('period_members').insert(members.map(function(m,i){ return {period_family_id:pf.id, klan_id:currentKlanId, name:m.name, factor:m.factor, wine_drinker:m.wine_drinker, is_guest:false, days_mode:'all', day_states:[], sort_order:i} }))
+    await sb.from('period_members').insert(members.map(function(m,i){ return {period_family_id:pf.id, klan_id:currentKlanId, name:m.name, factor_mat:m.factor_mat, factor_vin:m.factor_vin, is_guest:false, days_mode:'all', day_states:[], sort_order:i} }))
   }
   await init(); openPeriodFamiliesModal(periodId)
 }
@@ -676,8 +676,8 @@ function addMemberModal(periodId, pfId, isGuest){
   <div class="modal">
     <div class="modal-title">${isGuest?'Ny gäst':'Ny medlem'}</div>
     <div class="fg"><label>Namn</label><input id="m-name" autofocus/></div>
-    <div class="fg"><label>Faktor</label><input type="number" id="m-factor" value="1" min="0" step="0.05"/></div>
-    <div class="fg"><label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="m-wine" style="width:auto"/> Vindrickare</label></div>
+    <div class="fg"><label>Faktor-mat</label><input type="number" id="m-factor-mat" value="1" min="0" step="0.05"/></div>
+    <div class="fg"><label>Faktor-vin</label><input type="number" id="m-factor-vin" value="0" min="0" step="0.05"/></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveNewMember('${periodId}','${pfId}',${isGuest})">Spara</button>
       <button class="btn btn-g" onclick="openPeriodFamiliesModal('${periodId}')">Avbryt</button>
@@ -687,9 +687,9 @@ function addMemberModal(periodId, pfId, isGuest){
 async function saveNewMember(periodId, pfId, isGuest){
   const name = document.getElementById('m-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  const factor = parseFloat(document.getElementById('m-factor').value)||0
-  const wine = document.getElementById('m-wine').checked
-  const res = await sb.from('period_members').insert({period_family_id:pfId, klan_id:currentKlanId, name:name, factor:factor, wine_drinker:wine, is_guest:isGuest, days_mode:'all', day_states:[]})
+  const factorMat = parseFloat(document.getElementById('m-factor-mat').value)||0
+  const factorVin = parseFloat(document.getElementById('m-factor-vin').value)||0
+  const res = await sb.from('period_members').insert({period_family_id:pfId, klan_id:currentKlanId, name:name, factor_mat:factorMat, factor_vin:factorVin, is_guest:isGuest, days_mode:'all', day_states:[]})
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
   await init(); openPeriodFamiliesModal(periodId)
 }
@@ -701,8 +701,8 @@ function editMemberModal(periodId, memberId){
   <div class="modal">
     <div class="modal-title">Redigera ${m.is_guest?'gäst':'medlem'}</div>
     <div class="fg"><label>Namn</label><input id="m-name" value="${esc(m.name)}" autofocus/></div>
-    <div class="fg"><label>Faktor</label><input type="number" id="m-factor" value="${m.factor}" min="0" step="0.05"/></div>
-    <div class="fg"><label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="m-wine" style="width:auto" ${m.wine_drinker?'checked':''}/> Vindrickare</label></div>
+    <div class="fg"><label>Faktor-mat</label><input type="number" id="m-factor-mat" value="${m.factor_mat}" min="0" step="0.05"/></div>
+    <div class="fg"><label>Faktor-vin</label><input type="number" id="m-factor-vin" value="${m.factor_vin}" min="0" step="0.05"/></div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveMember('${periodId}','${memberId}')">Spara</button>
       <button class="btn btn-g" onclick="openPeriodFamiliesModal('${periodId}')">Avbryt</button>
@@ -712,9 +712,9 @@ function editMemberModal(periodId, memberId){
 async function saveMember(periodId, memberId){
   const name = document.getElementById('m-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  const factor = parseFloat(document.getElementById('m-factor').value)||0
-  const wine = document.getElementById('m-wine').checked
-  const res = await sb.from('period_members').update({name:name, factor:factor, wine_drinker:wine}).eq('id',memberId)
+  const factorMat = parseFloat(document.getElementById('m-factor-mat').value)||0
+  const factorVin = parseFloat(document.getElementById('m-factor-vin').value)||0
+  const res = await sb.from('period_members').update({name:name, factor_mat:factorMat, factor_vin:factorVin}).eq('id',memberId)
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
   await init(); openPeriodFamiliesModal(periodId)
 }
@@ -806,8 +806,8 @@ function computeReport(periodId){
   pfs.forEach(function(pf){
     periodMembersFor(pf.id).forEach(function(m){
       const days = memberDays(m, dates)
-      const mandagar = days*(parseFloat(m.factor)||0)
-      const vinMandagar = m.wine_drinker ? mandagar : 0
+      const mandagar = days*(parseFloat(m.factor_mat)||0)
+      const vinMandagar = days*(parseFloat(m.factor_vin)||0)
       sumMandagar += mandagar
       sumVinMandagar += vinMandagar
       allMembers.push(Object.assign({}, m, {familyId:pf.id, familyName:pf.name, days:days, mandagar:mandagar, vinMandagar:vinMandagar}))
