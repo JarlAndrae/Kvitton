@@ -470,6 +470,20 @@ function renderPerioder(){
     ${(!openPeriods.length && !lastPeriods.length)?'<p class="empty">Skapa en period för att börja logga kvitton.</p>':cards}`
 }
 
+function periodDateRangeLabel(startsAt, endsAt){
+  const sParts = startsAt.split('-').map(Number)
+  const eParts = endsAt.split('-').map(Number)
+  const months = ['jan','feb','mars','april','maj','juni','juli','aug','sep','okt','nov','dec']
+  const sd = sParts[2], sm = months[sParts[1]-1]
+  const ed = eParts[2], em = months[eParts[1]-1]
+  if(sParts[1]===eParts[1] && sParts[0]===eParts[0]) return sd+'–'+ed+' '+em
+  return sd+' '+sm+'–'+ed+' '+em
+}
+function suggestPeriodName(startsAt, endsAt, platsId){
+  const range = periodDateRangeLabel(startsAt, endsAt)
+  const pl = platsId ? platsName(platsId) : ''
+  return pl ? (pl+' '+range) : range
+}
 function selectPeriod(id){ state.selectedPeriodId=id; localStorage.setItem('kvitton_period',id); renderPeriodSelect(); closeModal() }
 
 function newPeriodModal(){
@@ -480,10 +494,11 @@ function newPeriodModal(){
     <div class="modal-title">Ny period</div>
     <div class="fg"><label>Namn</label><input id="p-name" placeholder="t.ex. Sommar 2026" autofocus/></div>
     <div class="fr">
-      <div class="fg"><label>Start</label><input type="date" id="p-start" value="${today()}"/></div>
-      <div class="fg"><label>Slut</label><input type="date" id="p-end" value="${today()}"/></div>
+      <div class="fg" style="flex:1"><label>Start</label><input type="date" id="p-start" value="${today()}"/></div>
+      <div class="fg" style="flex:1"><label>Slut</label><input type="date" id="p-end" value="${today()}"/></div>
     </div>
     <div class="fg"><label>Ställe</label><select id="p-plats">${platsOpts}</select></div>
+    <button class="btn btn-g btn-sm" style="margin-bottom:12px" onclick="document.getElementById('p-name').value=suggestPeriodName(document.getElementById('p-start').value,document.getElementById('p-end').value,document.getElementById('p-plats').value)">🔄 Föreslå namn från ställe + datum</button>
     <div class="fg"><label>Familjer att kopiera in (kan ändras senare)</label>${tplRows || '<div class="card-sub">Inga mallar – skapa en under fliken Mallar, eller lägg till adhoc-familjer efter att perioden skapats.</div>'}</div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="savePeriod()">Spara</button>
@@ -579,12 +594,13 @@ function openPeriodFamiliesModal(periodId, focusPfId){
 
   const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(function(pl){ return '<option value="'+pl.id+'" '+(pl.id===p.plats_id?'selected':'')+'>'+esc(pl.name)+'</option>' }).join('')
   const periodBasics = `<div class="card" style="margin-bottom:10px">
-    <div class="fg"><label>Namn</label><input value="${esc(p.name)}" onchange="updatePeriodField('${periodId}','name',this.value.trim())"/></div>
+    <div class="fg"><label>Namn</label><input id="pf-edit-name" value="${esc(p.name)}" onchange="updatePeriodField('${periodId}','name',this.value.trim())"/></div>
     <div class="fr">
-      <div class="fg"><label>Start</label><input type="date" id="pf-edit-start" value="${p.starts_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
-      <div class="fg"><label>Slut</label><input type="date" id="pf-edit-end" value="${p.ends_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
+      <div class="fg" style="flex:1"><label>Start</label><input type="date" id="pf-edit-start" value="${p.starts_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
+      <div class="fg" style="flex:1"><label>Slut</label><input type="date" id="pf-edit-end" value="${p.ends_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
     </div>
-    <div class="fg"><label>Ställe</label><select onchange="updatePeriodField('${periodId}','plats_id',this.value||null)">${platsOpts}</select></div>
+    <div class="fg"><label>Ställe</label><select id="pf-edit-plats" onchange="updatePeriodField('${periodId}','plats_id',this.value||null)">${platsOpts}</select></div>
+    <button class="btn btn-g btn-sm" onclick="updatePeriodField('${periodId}','name',suggestPeriodName(document.getElementById('pf-edit-start').value,document.getElementById('pf-edit-end').value,document.getElementById('pf-edit-plats').value))">🔄 Föreslå namn från ställe + datum</button>
   </div>`
 
   const famBlocks = pfs.map(function(pf){
@@ -606,7 +622,7 @@ function openPeriodFamiliesModal(periodId, focusPfId){
         <div class="card-title">${esc(pf.name)}${pf.is_adhoc?' <span class="tag">Adhoc</span>':''}</div>
         <div class="btn-row">
           <button class="btn btn-g btn-sm" onclick="addPersonModal('${periodId}','${pf.id}')">+ Person</button>
-          <button class="btn btn-g btn-sm" onclick="openFamilyDaysModal('${periodId}','${pf.id}')">📅 Dagar för alla</button>
+          <button class="btn btn-g btn-sm" onclick="openFamilyDaysModal('${periodId}','${pf.id}')">🙋 Närvaro för alla</button>
           <button class="btn btn-d btn-sm" onclick="delPeriodFamily('${periodId}','${pf.id}')">Ta bort familj</button>
         </div>
       </div>
@@ -733,7 +749,7 @@ function renderFamilyDaysModal(periodId, pfId){
   }).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">Dagar för alla – ${esc(pf?pf.name:'')}</div>
+    <div class="modal-title">Närvaro för alla – ${esc(pf?pf.name:'')}</div>
     <div class="hint">Sätter samma närvaro för alla nuvarande personer i familjen. Du kan justera enskilda personer efteråt via deras egen dagbadge.</div>
     <div class="fam-days-row" style="border:none;padding:0">
       <div class="fam-days-name"><span>Närvaro</span><span>${fmt(total,1)} av ${dates.length} dagar</span></div>
