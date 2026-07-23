@@ -1026,7 +1026,30 @@ function renderReport(){
     </div>
   </div>` }).join('')
 
-  return `<div class="sh"><span class="sh-title">Rapport – ${esc(period.name)}</span></div>${sumBar}${famRows}`
+  // Swish-förslag: minsta antal transaktioner för att jämna ut alla saldon
+  const payers = rep.perFamily.filter(function(f){ return f.balance < -0.5 }).map(function(f){ return {name:f.name, owe:-f.balance} })
+  const receivers = rep.perFamily.filter(function(f){ return f.balance > 0.5 }).map(function(f){ return {name:f.name, get:f.balance} })
+  const transactions = []
+  let pi=0, ri=0
+  while(pi<payers.length && ri<receivers.length){
+    const p=payers[pi], r=receivers[ri]
+    const amt = Math.min(p.owe, r.get)
+    if(amt>0.5) transactions.push({from:p.name, to:r.name, amt:amt})
+    p.owe -= amt; r.get -= amt
+    if(p.owe<0.5) pi++
+    if(r.get<0.5) ri++
+  }
+  const swishHtml = transactions.length ? `<div class="swish-box">
+    <div class="swish-title">💸 Swish-förslag</div>
+    ${transactions.map(function(t){ return `<div class="swish-row">
+      <span class="swish-from">${esc(t.from)}</span>
+      <span style="color:var(--muted)">→</span>
+      <span class="swish-to">${esc(t.to)}</span>
+      <span class="swish-amt">${fmt(t.amt)} kr</span>
+    </div>` }).join('')}
+  </div>` : ''
+
+  return `<div class="sh"><span class="sh-title">Rapport – ${esc(period.name)}</span></div>${sumBar}${swishHtml}${famRows}`
 }
 
 // ============================================================
