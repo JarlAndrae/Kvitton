@@ -1,3 +1,4 @@
+
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
 let state = { templates:[], templateMembers:[], periods:[], periodFamilies:[], periodMembers:[], receipts:[], platser:[] }
@@ -988,9 +989,11 @@ function computeReport(periodId){
     const famVinMandagar = members.reduce(function(s,m){ return s+m.vinMandagar },0)
     const owedMat = matPerMandag*famMandagar
     const owedVin = vinPerVinMandag*famVinMandagar
-    const paid = (paidMat[pf.id]||0)+(paidVin[pf.id]||0)
+    const paidMatF = paidMat[pf.id]||0
+    const paidVinF = paidVin[pf.id]||0
+    const paid = paidMatF+paidVinF
     const owed = owedMat+owedVin
-    return { id:pf.id, name:pf.name, mandagar:famMandagar, vinMandagar:famVinMandagar, owedMat:owedMat, owedVin:owedVin, owed:owed, paid:paid, balance: paid-owed }
+    return { id:pf.id, name:pf.name, mandagar:famMandagar, vinMandagar:famVinMandagar, owedMat:owedMat, owedVin:owedVin, owed:owed, paid:paid, paidMat:paidMatF, paidVin:paidVinF, balance: paid-owed }
   })
 
   return { dates:dates, totMat:totMat, totVin:totVin, sumMandagar:sumMandagar, sumVinMandagar:sumVinMandagar, matPerMandag:matPerMandag, vinPerVinMandag:vinPerVinMandag, members:allMembers, perFamily:perFamily }
@@ -1261,7 +1264,17 @@ function openHistoryDetail(periodId){
   if(!p) return
   const purged = p.status==='rensad'
   const rep = purged ? {totMat:p.purged_tot_mat||0, totVin:p.purged_tot_vin||0, perFamily:[]} : (p.frozen_report || {totMat:0,totVin:0,perFamily:[]})
-  const famRows = (rep.perFamily||[]).map(function(f){ return '<div class="rep-row"><span>'+esc(f.name)+'</span><span>'+fmt(f.owed)+' kr (betalat '+fmt(f.paid)+' kr)</span></div>' }).join('')
+  const famRows = (rep.perFamily||[]).map(function(f){
+    const hasBreakdown = f.paidMat!=null && f.paidVin!=null
+    const paidLine = hasBreakdown
+      ? '🥗 '+fmt(f.paidMat)+' kr · 🍷 '+fmt(f.paidVin)+' kr'
+      : fmt(f.paid)+' kr' // äldre frysta rapporter saknar uppdelning mat/vin
+    const daysLine = fmt(f.mandagar,1)+' mandagar'+(f.vinMandagar>0?' · '+fmt(f.vinMandagar,1)+' vinmandagar':'')
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--border,#eee)">'
+      +'<div style="display:flex;justify-content:space-between;font-weight:600"><span>'+esc(f.name)+'</span><span>'+daysLine+'</span></div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:2px">Lade ut: '+paidLine+'</div>'
+      +'</div>'
+  }).join('')
 
   let actionBtns = ''
   let warningBanner = ''
