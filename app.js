@@ -1007,8 +1007,8 @@ function renderReport(){
     <div class="rep-row"><span>🥗 Mat</span><span>${fmt(rep.totMat)} kr</span></div>
     <div class="rep-row"><span>🍷 Vin</span><span>${fmt(rep.totVin)} kr</span></div>
     <div class="rep-row" style="font-weight:700;font-size:15px;margin-top:4px"><span>Totalt</span><span>${fmt(rep.totMat+rep.totVin)} kr</span></div>
-    <div class="rep-row" style="margin-top:6px;color:var(--muted);font-size:12px"><span>Mandagar</span><span>${fmt(rep.sumMandagar,1)} · ${fmt(rep.matPerMandag,2)} kr/mandag</span></div>
-    ${rep.sumVinMandagar>0?`<div class="rep-row" style="color:var(--muted);font-size:12px"><span>Vinmandagar</span><span>${fmt(rep.sumVinMandagar,1)} · ${fmt(rep.vinPerVinMandag,2)} kr/vinmandag</span></div>`:''}
+    <div class="rep-row" style="margin-top:6px;color:rgba(255,255,255,.85);font-size:12px"><span>Mandagar</span><span>${fmt(rep.sumMandagar,1)} · ${fmt(rep.matPerMandag,2)} kr/mandag</span></div>
+    ${rep.sumVinMandagar>0?`<div class="rep-row" style="color:rgba(255,255,255,.85);font-size:12px"><span>Vinmandagar</span><span>${fmt(rep.sumVinMandagar,1)} · ${fmt(rep.vinPerVinMandag,2)} kr/vinmandag</span></div>`:''}
   </div>`
 
   const famRows = rep.perFamily.map(function(f){ return `<div class="card">
