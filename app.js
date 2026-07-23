@@ -35,6 +35,7 @@ function isOpenPeriod(p){ return p && p.status==='oppen' }
 function isLastPeriod(p){ return p && p.status==='last' }
 function isCleared(p){ return p && p.status==='clearad' }
 function isCompressed(p){ return p && p.status==='komprimerad' }
+function isPurged(p){ return p && p.status==='rensad' }
 function periodFamiliesFor(periodId){ return state.periodFamilies.filter(function(pf){ return pf.period_id===periodId }) }
 function periodMembersFor(pfId){ return state.periodMembers.filter(function(m){ return m.period_family_id===pfId }).sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0) }) }
 function pfName(id){ var f=state.periodFamilies.find(function(pf){ return pf.id===id }); return f?f.name:'' }
@@ -62,7 +63,7 @@ function memberDays(member, dates){
   return dates.length
 }
 function statusLabel(status){
-  const map = {oppen:'Öppen', last:'Låst', clearad:'Clearad', komprimerad:'Komprimerad'}
+  const map = {oppen:'Öppen', last:'Låst', clearad:'Clearad', komprimerad:'Komprimerad', rensad:'Rensad'}
   return map[status] || status
 }
 
@@ -643,10 +644,35 @@ async function clearPeriod(id){
   if(state.selectedPeriodId===id) state.selectedPeriodId=null
   await init()
 }
+async function reopenClearedPeriod(id){
+  if(!confirm('Återställ perioden till låst? Den flyttas tillbaka från Historik till fliken Perioder, redo att låsas upp eller clearas igen.')) return
+  await sb.from('periods').update({status:'last', cleared_at:null}).eq('id',id)
+  closeModal()
+  await init()
+  showTab('periods', document.querySelectorAll('.tab')[4])
+}
 async function compressPeriod(id){
   if(!confirm('Komprimera perioden? Totalsumman behålls men alla kvitton och detaljer slängs permanent. Går inte att ångra.')) return
   await sb.from('receipts').delete().eq('period_id',id)
   await sb.from('periods').update({status:'komprimerad', compressed_at:new Date().toISOString()}).eq('id',id)
+  closeModal()
+  await init()
+  showTab('history', document.querySelectorAll('.tab')[5])
+}
+async function purgePeriod(id){
+  const p = state.periods.find(function(x){ return x.id===id })
+  if(!p) return
+  if(!confirm('Rensa perioden permanent? Familjer, medlemmar och all detaljerad data tas bort för gott – bara totalsumman finns kvar. Går inte att ångra.')) return
+  const rep = p.frozen_report || {totMat:0,totVin:0}
+  await sb.from('period_families').delete().eq('period_id',id) // cascadear till period_members
+  await sb.from('periods').update({
+    status:'rensad',
+    purged_at:new Date().toISOString(),
+    purged_tot_mat: parseFloat(rep.totMat)||0,
+    purged_tot_vin: parseFloat(rep.totVin)||0,
+    frozen_report: null
+  }).eq('id',id)
+  closeModal()
   await init()
   showTab('history', document.querySelectorAll('.tab')[5])
 }
@@ -1184,15 +1210,21 @@ async function saveBulkRows(){
 // ============================================================
 // HISTORIK
 // ============================================================
+function historyBadge(status){
+  if(status==='komprimerad') return '<span class="tag">Komprimerad</span>'
+  if(status==='rensad') return '<span class="tag">Rensad</span>'
+  return '<span class="tag">Clearad</span>'
+}
+
 function renderHistorik(){
-  const hist = state.periods.filter(function(p){ return p.status==='clearad'||p.status==='komprimerad' }).sort(function(a,b){ return new Date(b.starts_at)-new Date(a.starts_at) })
+  const hist = state.periods.filter(function(p){ return p.status==='clearad'||p.status==='komprimerad'||p.status==='rensad' }).sort(function(a,b){ return new Date(b.starts_at)-new Date(a.starts_at) })
   if(!hist.length) return '<div class="sh"><span class="sh-title">Historik</span></div><p class="empty">Inga clearade perioder ännu.</p>'
   const rows = hist.map(function(p){
-    const rep = p.frozen_report || {totMat:0,totVin:0}
+    const rep = p.status==='rensad' ? {totMat:p.purged_tot_mat||0, totVin:p.purged_tot_vin||0} : (p.frozen_report || {totMat:0,totVin:0})
     const tot = (parseFloat(rep.totMat)||0)+(parseFloat(rep.totVin)||0)
     return `<div class="slim-row" onclick="openHistoryDetail('${p.id}')" style="cursor:pointer">
       <div style="flex:1;min-width:0">
-        <div class="slim-desc">${esc(p.name)} ${p.status==='komprimerad'?'<span class="tag">Komprimerad</span>':'<span class="tag">Clearad</span>'}</div>
+        <div class="slim-desc">${esc(p.name)} ${historyBadge(p.status)}</div>
         <div class="slim-sub">${new Date(p.starts_at).toLocaleDateString('sv-SE')} – ${new Date(p.ends_at).toLocaleDateString('sv-SE')}</div>
       </div>
       <div class="slim-amt">${fmt(tot)} kr</div>
@@ -1204,9 +1236,22 @@ function renderHistorik(){
 function openHistoryDetail(periodId){
   const p = state.periods.find(function(x){ return x.id===periodId })
   if(!p) return
-  const rep = p.frozen_report || {totMat:0,totVin:0,perFamily:[]}
+  const purged = p.status==='rensad'
+  const rep = purged ? {totMat:p.purged_tot_mat||0, totVin:p.purged_tot_vin||0, perFamily:[]} : (p.frozen_report || {totMat:0,totVin:0,perFamily:[]})
   const famRows = (rep.perFamily||[]).map(function(f){ return '<div class="rep-row"><span>'+esc(f.name)+'</span><span>'+fmt(f.owed)+' kr (betalat '+fmt(f.paid)+' kr)</span></div>' }).join('')
-  const compressBtn = p.status==='clearad' ? `<button class="btn btn-w btn-sm" onclick="compressPeriod('${p.id}')">🗜️ Komprimera</button>` : ''
+
+  let actionBtns = ''
+  let warningBanner = ''
+  if(p.status==='clearad'){
+    actionBtns = `<button class="btn btn-g btn-sm" onclick="reopenClearedPeriod('${p.id}')">↩️ Återställ</button>
+      <button class="btn btn-w btn-sm" onclick="compressPeriod('${p.id}')">🗜️ Komprimera</button>`
+  } else if(p.status==='komprimerad'){
+    warningBanner = `<div class="hint" style="margin-top:8px;background:var(--danger-light);color:var(--danger);font-weight:600">⚠️ Denna period är komprimerad — kvittona är permanent borttagna. Går inte att ångra.</div>`
+    actionBtns = `<button class="btn btn-d btn-sm" onclick="purgePeriod('${p.id}')">🧹 Rensa permanent</button>`
+  } else if(purged){
+    warningBanner = `<div class="hint" style="margin-top:8px;background:var(--danger-light);color:var(--danger);font-weight:600">⚠️ Denna period är permanent rensad — endast totalsumman finns kvar. Går inte att ångra.</div>`
+  }
+
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">${esc(p.name)}</div>
@@ -1216,10 +1261,10 @@ function openHistoryDetail(periodId){
       <div class="rep-row"><span>🍷 Vin</span><span>${fmt(rep.totVin)} kr</span></div>
       <div class="rep-row" style="font-weight:700"><span>Totalt</span><span>${fmt((parseFloat(rep.totMat)||0)+(parseFloat(rep.totVin)||0))} kr</span></div>
     </div>
-    <div style="margin-top:8px">${famRows || '<p class="empty">Ingen detaljerad data sparad.</p>'}</div>
-    ${p.status==='komprimerad' ? '<div class="hint" style="margin-top:8px">Kvitton och detaljer är slängda – bara totalsumman finns kvar.</div>' : ''}
+    ${!purged ? `<div style="margin-top:8px">${famRows || '<p class="empty">Ingen detaljerad data sparad.</p>'}</div>` : ''}
+    ${warningBanner}
     <div class="btn-row" style="margin-top:12px">
-      ${compressBtn}
+      ${actionBtns}
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
     </div>
   </div></div>`)
