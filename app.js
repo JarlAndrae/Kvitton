@@ -486,18 +486,23 @@ function suggestPeriodName(startsAt, endsAt, platsId){
 }
 function selectPeriod(id){ state.selectedPeriodId=id; localStorage.setItem('kvitton_period',id); renderPeriodSelect(); closeModal() }
 
-function newPeriodModal(){
-  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(function(pl){ return '<option value="'+pl.id+'">'+esc(pl.name)+'</option>' }).join('')
-  const tplRows = state.templates.map(function(t){ return '<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:4px 0"><input type="checkbox" id="np-tpl-'+t.id+'" style="width:auto"/> '+esc(t.name)+'</label>' }).join('')
+function newPeriodModal(prefill){
+  prefill = prefill || {}
+  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(function(pl){ return '<option value="'+pl.id+'" '+(pl.id===prefill.platsId?'selected':'')+'>'+esc(pl.name)+'</option>' }).join('')
+  const tplRows = state.templates.map(function(t){ const checked = prefill.checkedTemplateIds && prefill.checkedTemplateIds.indexOf(t.id)>=0; return '<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:4px 0"><input type="checkbox" id="np-tpl-'+t.id+'" '+(checked?'checked':'')+' style="width:auto"/> '+esc(t.name)+'</label>' }).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Ny period</div>
-    <div class="fg"><label>Namn</label><input id="p-name" placeholder="t.ex. Sommar 2026" autofocus/></div>
+    <div class="fg"><label>Namn</label><input id="p-name" value="${esc(prefill.name||'')}" placeholder="t.ex. Sommar 2026" autofocus/></div>
     <div class="fr">
-      <div class="fg" style="flex:1"><label>Start</label><input type="date" id="p-start" value="${today()}"/></div>
-      <div class="fg" style="flex:1"><label>Slut</label><input type="date" id="p-end" value="${today()}"/></div>
+      <div class="fg" style="flex:1"><label>Start</label><input type="date" id="p-start" value="${prefill.start||today()}"/></div>
+      <div class="fg" style="flex:1"><label>Slut</label><input type="date" id="p-end" value="${prefill.end||today()}"/></div>
     </div>
     <div class="fg"><label>Ställe</label><select id="p-plats">${platsOpts}</select></div>
+    <div class="btn-row" style="margin-bottom:10px">
+      <button class="btn btn-g btn-sm" onclick="openPlatsQuickAdd('new')">+ Nytt ställe</button>
+      <button class="btn btn-d btn-sm" onclick="deleteSelectedPlats('new')">🗑️ Ta bort valt ställe</button>
+    </div>
     <button class="btn btn-g btn-sm" style="margin-bottom:12px" onclick="document.getElementById('p-name').value=suggestPeriodName(document.getElementById('p-start').value,document.getElementById('p-end').value,document.getElementById('p-plats').value)">🔄 Föreslå namn från ställe + datum</button>
     <div class="fg"><label>Familjer att kopiera in (kan ändras senare)</label>${tplRows || '<div class="card-sub">Inga mallar – skapa en under fliken Mallar, eller lägg till adhoc-familjer efter att perioden skapats.</div>'}</div>
     <div class="btn-row">
@@ -505,6 +510,70 @@ function newPeriodModal(){
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
+}
+
+function snapshotNewPeriodForm(){
+  return {
+    name: document.getElementById('p-name') ? document.getElementById('p-name').value : '',
+    start: document.getElementById('p-start') ? document.getElementById('p-start').value : today(),
+    end: document.getElementById('p-end') ? document.getElementById('p-end').value : today(),
+    platsId: document.getElementById('p-plats') ? document.getElementById('p-plats').value : '',
+    checkedTemplateIds: state.templates.filter(function(t){ const el=document.getElementById('np-tpl-'+t.id); return el && el.checked }).map(function(t){ return t.id })
+  }
+}
+
+let platsQuickAddCtx = null
+function openPlatsQuickAdd(context, periodId, focusPfId){
+  platsQuickAddCtx = { context:context, periodId:periodId, focusPfId:focusPfId, snapshot: context==='new' ? snapshotNewPeriodForm() : null }
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Nytt ställe</div>
+    <div class="fg"><label>Namn</label><input id="new-plats-name" placeholder="t.ex. Kroatien" autofocus/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="saveQuickPlats()">Spara</button>
+      <button class="btn btn-g" onclick="cancelQuickPlats()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+async function saveQuickPlats(){
+  const ctx = platsQuickAddCtx || {}
+  const name = document.getElementById('new-plats-name').value.trim()
+  if(!name){ alert('Ange ett namn.'); return }
+  const res = await sb.from('platser').insert({name:name, klan_id:currentKlanId}).select().single()
+  if(res.error){ alert('Kunde inte spara stället: '+res.error.message); return }
+  const platsRes = await sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name')
+  state.platser = platsRes.data || []
+  if(ctx.context==='period'){
+    await sb.from('periods').update({plats_id:res.data.id}).eq('id',ctx.periodId)
+    await init(); openPeriodFamiliesModal(ctx.periodId, ctx.focusPfId||null)
+  } else {
+    const snap = ctx.snapshot || {}
+    snap.platsId = res.data.id
+    newPeriodModal(snap)
+  }
+}
+function cancelQuickPlats(){
+  const ctx = platsQuickAddCtx || {}
+  if(ctx.context==='period') openPeriodFamiliesModal(ctx.periodId, ctx.focusPfId||null)
+  else newPeriodModal(ctx.snapshot)
+}
+
+async function deleteSelectedPlats(context, periodId, focusPfId){
+  const selId = context==='period' ? document.getElementById('pf-edit-plats').value : document.getElementById('p-plats').value
+  if(!selId){ alert('Inget ställe valt att ta bort.'); return }
+  const pl = state.platser.find(function(p){ return p.id===selId })
+  if(!confirm('Ta bort stället'+(pl?' "'+pl.name+'"':'')+'? Perioder som var kopplade till det förlorar bara kopplingen. OBS: eventuella vistelser i Planeringskalendern för stället tas bort.')) return
+  const res = await sb.from('platser').delete().eq('id',selId)
+  if(res.error){ alert('Kunde inte ta bort stället: '+res.error.message); return }
+  const platsRes = await sb.from('platser').select('*').eq('klan_id',currentKlanId).order('name')
+  state.platser = platsRes.data || []
+  if(context==='period'){
+    await init(); openPeriodFamiliesModal(periodId, focusPfId||null)
+  } else {
+    const snap = snapshotNewPeriodForm()
+    snap.platsId = ''
+    newPeriodModal(snap)
+  }
 }
 
 async function savePeriod(){
@@ -600,6 +669,10 @@ function openPeriodFamiliesModal(periodId, focusPfId){
       <div class="fg" style="flex:1"><label>Slut</label><input type="date" id="pf-edit-end" value="${p.ends_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
     </div>
     <div class="fg"><label>Ställe</label><select id="pf-edit-plats" onchange="updatePeriodField('${periodId}','plats_id',this.value||null)">${platsOpts}</select></div>
+    <div class="btn-row" style="margin-bottom:6px">
+      <button class="btn btn-g btn-sm" onclick="openPlatsQuickAdd('period','${periodId}'${focusPfId?",'"+focusPfId+"'":''})">+ Nytt ställe</button>
+      <button class="btn btn-d btn-sm" onclick="deleteSelectedPlats('period','${periodId}'${focusPfId?",'"+focusPfId+"'":''})">🗑️ Ta bort valt ställe</button>
+    </div>
     <button class="btn btn-g btn-sm" onclick="updatePeriodField('${periodId}','name',suggestPeriodName(document.getElementById('pf-edit-start').value,document.getElementById('pf-edit-end').value,document.getElementById('pf-edit-plats').value))">🔄 Föreslå namn från ställe + datum</button>
   </div>`
 
