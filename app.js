@@ -441,7 +441,7 @@ function renderPerioder(){
     const tags = pfs.map(function(pf){
       const members = periodMembersFor(pf.id)
       const totDays = members.reduce(function(s,m){ return s+memberDays(m,dates) },0)
-      return '<span class="tag tag-clickable" onclick="openPeriodFamiliesModal(\''+p.id+'\')">'+esc(pf.name)+': '+members.length+' pers · '+fmt(totDays,1)+'d ✏️</span>'
+      return '<span class="tag tag-clickable" onclick="openPeriodFamiliesModal(\''+p.id+'\',\''+pf.id+'\')">'+esc(pf.name)+': '+members.length+' pers · '+fmt(totDays,1)+'d ✏️</span>'
     }).join('')
     const pReceipts = state.receipts.filter(function(r){ return r.period_id===p.id })
     const totMat = pReceipts.reduce(function(s,r){ return s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0) },0)
@@ -457,8 +457,7 @@ function renderPerioder(){
         </div>
         <div class="btn-row" style="flex-direction:column;align-items:flex-end">
           <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}')">Välj</button>
-          <button class="btn btn-g btn-sm" onclick="openPeriodFamiliesModal('${p.id}')">👨‍👩‍👧 Familjer</button>
-          <button class="btn btn-g btn-sm" onclick="editPeriodBasics('${p.id}')">Redigera</button>
+          <button class="btn btn-g btn-sm" onclick="openPeriodFamiliesModal('${p.id}')">✏️ Redigera period</button>
           <button class="btn btn-w btn-sm" onclick="lockPeriod('${p.id}')">🔒 Lås</button>
           <button class="btn btn-d btn-sm" onclick="delPeriod('${p.id}')">Ta bort</button>
         </div>
@@ -519,35 +518,20 @@ async function savePeriod(){
   closeModal(); await init(); showTab('periods', document.querySelectorAll('.tab')[4])
 }
 
-function editPeriodBasics(periodId){
-  const p = state.periods.find(function(x){ return x.id===periodId })
-  if(!p) return
-  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(function(pl){ return '<option value="'+pl.id+'" '+(pl.id===p.plats_id?'selected':'')+'>'+esc(pl.name)+'</option>' }).join('')
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Redigera period</div>
-    <div class="fg"><label>Namn</label><input id="ep-name" value="${esc(p.name)}" autofocus/></div>
-    <div class="fr">
-      <div class="fg"><label>Start</label><input type="date" id="ep-start" value="${p.starts_at}"/></div>
-      <div class="fg"><label>Slut</label><input type="date" id="ep-end" value="${p.ends_at}"/></div>
-    </div>
-    <div class="fg"><label>Ställe</label><select id="ep-plats">${platsOpts}</select></div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="savePeriodBasics('${periodId}')">Spara</button>
-      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-
-async function savePeriodBasics(periodId){
-  const name = document.getElementById('ep-name').value.trim()
-  if(!name){ alert('Ange ett namn.'); return }
-  const startsAt = document.getElementById('ep-start').value
-  const endsAt = document.getElementById('ep-end').value
-  if(endsAt < startsAt){ alert('Slutdatum kan inte vara före startdatum.'); return }
-  const res = await sb.from('periods').update({name:name, starts_at:startsAt, ends_at:endsAt, plats_id: document.getElementById('ep-plats').value || null}).eq('id',periodId)
+async function updatePeriodField(periodId, field, value){
+  const payload = {}
+  payload[field] = value
+  const res = await sb.from('periods').update(payload).eq('id',periodId)
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
-  closeModal(); await init()
+  await init(); openPeriodFamiliesModal(periodId)
+}
+async function updatePeriodDates(periodId, pfId){
+  const startsAt = document.getElementById('pf-edit-start').value
+  const endsAt = document.getElementById('pf-edit-end').value
+  if(endsAt < startsAt){ alert('Slutdatum kan inte vara före startdatum.'); return }
+  const res = await sb.from('periods').update({starts_at:startsAt, ends_at:endsAt}).eq('id',periodId)
+  if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
+  await init(); openPeriodFamiliesModal(periodId, pfId)
 }
 
 async function delPeriod(id){
@@ -584,12 +568,24 @@ async function compressPeriod(id){
 }
 
 // ── PERIODFAMILJER-MODAL ─────────────────────────────────────
-function openPeriodFamiliesModal(periodId){
+function openPeriodFamiliesModal(periodId, focusPfId){
   const p = state.periods.find(function(x){ return x.id===periodId })
   if(!p) return
-  const pfs = periodFamiliesFor(periodId)
+  let pfs = periodFamiliesFor(periodId)
+  const scoped = focusPfId ? pfs.find(function(pf){ return pf.id===focusPfId }) : null
+  if(scoped) pfs = [scoped]
   const dates = getDatesInPeriod(p)
-  const remainingTemplates = state.templates.filter(function(t){ return !pfs.find(function(pf){ return pf.template_id===t.id }) })
+  const remainingTemplates = state.templates.filter(function(t){ return !periodFamiliesFor(periodId).find(function(pf){ return pf.template_id===t.id }) })
+
+  const platsOpts = '<option value="">– inget särskilt –</option>' + state.platser.map(function(pl){ return '<option value="'+pl.id+'" '+(pl.id===p.plats_id?'selected':'')+'>'+esc(pl.name)+'</option>' }).join('')
+  const periodBasics = `<div class="card" style="margin-bottom:10px">
+    <div class="fg"><label>Namn</label><input value="${esc(p.name)}" onchange="updatePeriodField('${periodId}','name',this.value.trim())"/></div>
+    <div class="fr">
+      <div class="fg"><label>Start</label><input type="date" id="pf-edit-start" value="${p.starts_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
+      <div class="fg"><label>Slut</label><input type="date" id="pf-edit-end" value="${p.ends_at}" onchange="updatePeriodDates('${periodId}'${focusPfId?",'"+focusPfId+"'":''})"/></div>
+    </div>
+    <div class="fg"><label>Ställe</label><select onchange="updatePeriodField('${periodId}','plats_id',this.value||null)">${platsOpts}</select></div>
+  </div>`
 
   const famBlocks = pfs.map(function(pf){
     const members = periodMembersFor(pf.id)
@@ -619,15 +615,17 @@ function openPeriodFamiliesModal(periodId){
     </div>`
   }).join('')
 
-  const addTplOpts = remainingTemplates.length ? '<select id="pf-add-tpl" style="width:auto">'+remainingTemplates.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')+'</select><button class="btn btn-g btn-sm" onclick="addTemplateToPeriod(\''+periodId+'\')">+ Kopiera in mall</button>' : ''
+  const addTplOpts = (!scoped && remainingTemplates.length) ? '<select id="pf-add-tpl" style="width:auto">'+remainingTemplates.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')+'</select><button class="btn btn-g btn-sm" onclick="addTemplateToPeriod(\''+periodId+'\')">+ Kopiera in mall</button>' : ''
 
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal" style="max-width:560px">
-    <div class="modal-title">Familjer – ${esc(p.name)}</div>
+    <div class="modal-title">Redigera period</div>
+    ${periodBasics}
+    ${scoped ? '<div class="hint">Visar bara <strong>'+esc(scoped.name)+'</strong> – <a href="#" onclick="event.preventDefault();openPeriodFamiliesModal(\''+periodId+'\')">visa alla familjer</a></div>' : ''}
     ${famBlocks || '<p class="empty">Inga familjer kopplade ännu.</p>'}
     <div class="btn-row" style="flex-wrap:wrap;margin-top:10px">
       ${addTplOpts}
-      <button class="btn btn-g btn-sm" onclick="addAdhocFamilyModal('${periodId}')">+ Adhoc-familj</button>
+      ${!scoped ? '<button class="btn btn-g btn-sm" onclick="addAdhocFamilyModal(\''+periodId+'\')">+ Adhoc-familj</button>' : ''}
     </div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
