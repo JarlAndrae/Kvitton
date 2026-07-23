@@ -596,10 +596,12 @@ function openPeriodFamiliesModal(periodId){
     const rows = members.map(function(m){
       const d = memberDays(m, dates)
       const dayBadge = m.days_mode==='all' ? 'Alla dagar' : fmt(d,1)+' dagar'
-      return `<div class="fr" style="align-items:center;gap:6px;padding:4px 0;border-top:1px solid var(--border,#eee)">
-        <div style="flex:1;font-size:13px">${esc(m.name)}${m.is_guest?' <span class="tag">Gäst</span>':''}<div class="card-sub">faktor-mat ${fmt(m.factor_mat,2)} · faktor-vin ${fmt(m.factor_vin,2)}</div></div>
+      return `<div class="fr" style="align-items:center;gap:6px;padding:6px 0;border-top:1px solid var(--border,#eee);flex-wrap:wrap">
+        <input value="${esc(m.name)}" onchange="updateMember('${periodId}','${m.id}','name',this.value)" style="flex:2;min-width:100px" placeholder="Namn"/>
+        <input type="number" step="0.05" min="0" value="${m.factor_mat}" onchange="updateMember('${periodId}','${m.id}','factor_mat',parseFloat(this.value)||0)" style="flex:1;min-width:64px" title="Faktor-mat"/>
+        <input type="number" step="0.05" min="0" value="${m.factor_vin}" onchange="updateMember('${periodId}','${m.id}','factor_vin',parseFloat(this.value)||0)" style="flex:1;min-width:64px" title="Faktor-vin"/>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer"><input type="checkbox" style="width:auto" ${m.is_guest?'checked':''} onchange="updateMember('${periodId}','${m.id}','is_guest',this.checked)"/>Gäst</label>
         <span class="tag tag-clickable" onclick="openMemberDaysModal('${periodId}','${m.id}')">${dayBadge} ✏️</span>
-        <button class="btn btn-g btn-sm" onclick="editMemberModal('${periodId}','${m.id}')">✏️</button>
         <button class="btn btn-d btn-sm" onclick="delMember('${periodId}','${m.id}')">✕</button>
       </div>`
     }).join('')
@@ -607,19 +609,20 @@ function openPeriodFamiliesModal(periodId){
       <div class="card-hdr">
         <div class="card-title">${esc(pf.name)}${pf.is_adhoc?' <span class="tag">Adhoc</span>':''}</div>
         <div class="btn-row">
-          <button class="btn btn-g btn-sm" onclick="addMemberModal('${periodId}','${pf.id}',false)">+ Medlem</button>
-          <button class="btn btn-g btn-sm" onclick="addMemberModal('${periodId}','${pf.id}',true)">+ Gäst</button>
+          <button class="btn btn-g btn-sm" onclick="addPersonModal('${periodId}','${pf.id}')">+ Person</button>
+          <button class="btn btn-g btn-sm" onclick="openFamilyDaysModal('${periodId}','${pf.id}')">📅 Dagar för alla</button>
           <button class="btn btn-d btn-sm" onclick="delPeriodFamily('${periodId}','${pf.id}')">Ta bort familj</button>
         </div>
       </div>
-      ${rows || '<p class="empty" style="margin-top:6px">Inga medlemmar än.</p>'}
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Namn · faktor-mat · faktor-vin · gäst</div>
+      ${rows || '<p class="empty" style="margin-top:6px">Inga personer än.</p>'}
     </div>`
   }).join('')
 
   const addTplOpts = remainingTemplates.length ? '<select id="pf-add-tpl" style="width:auto">'+remainingTemplates.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')+'</select><button class="btn btn-g btn-sm" onclick="addTemplateToPeriod(\''+periodId+'\')">+ Kopiera in mall</button>' : ''
 
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal" style="max-width:520px">
+  <div class="modal" style="max-width:560px">
     <div class="modal-title">Familjer – ${esc(p.name)}</div>
     ${famBlocks || '<p class="empty">Inga familjer kopplade ännu.</p>'}
     <div class="btn-row" style="flex-wrap:wrap;margin-top:10px">
@@ -666,61 +669,102 @@ async function saveAdhocFamily(periodId){
 }
 
 async function delPeriodFamily(periodId, pfId){
-  if(!confirm('Ta bort familjen ur perioden, inkl. alla dess medlemmar?')) return
+  if(!confirm('Ta bort familjen ur perioden, inkl. alla dess personer?')) return
   await sb.from('period_families').delete().eq('id',pfId)
   await init(); openPeriodFamiliesModal(periodId)
 }
 
-function addMemberModal(periodId, pfId, isGuest){
+function addPersonModal(periodId, pfId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">${isGuest?'Ny gäst':'Ny medlem'}</div>
+    <div class="modal-title">Ny person</div>
     <div class="fg"><label>Namn</label><input id="m-name" autofocus/></div>
     <div class="fg"><label>Faktor-mat</label><input type="number" id="m-factor-mat" value="1" min="0" step="0.05"/></div>
     <div class="fg"><label>Faktor-vin</label><input type="number" id="m-factor-vin" value="0" min="0" step="0.05"/></div>
+    <div class="fg"><label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="m-guest" style="width:auto"/> Gäst</label></div>
     <div class="btn-row">
-      <button class="btn btn-p" onclick="saveNewMember('${periodId}','${pfId}',${isGuest})">Spara</button>
+      <button class="btn btn-p" onclick="saveNewPerson('${periodId}','${pfId}')">Spara</button>
       <button class="btn btn-g" onclick="openPeriodFamiliesModal('${periodId}')">Avbryt</button>
     </div>
   </div></div>`)
 }
-async function saveNewMember(periodId, pfId, isGuest){
+async function saveNewPerson(periodId, pfId){
   const name = document.getElementById('m-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
   const factorMat = parseFloat(document.getElementById('m-factor-mat').value)||0
   const factorVin = parseFloat(document.getElementById('m-factor-vin').value)||0
+  const isGuest = document.getElementById('m-guest').checked
   const res = await sb.from('period_members').insert({period_family_id:pfId, klan_id:currentKlanId, name:name, factor_mat:factorMat, factor_vin:factorVin, is_guest:isGuest, days_mode:'all', day_states:[]})
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
   await init(); openPeriodFamiliesModal(periodId)
 }
 
-function editMemberModal(periodId, memberId){
-  const m = state.periodMembers.find(function(x){ return x.id===memberId })
-  if(!m) return
-  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="modal-title">Redigera ${m.is_guest?'gäst':'medlem'}</div>
-    <div class="fg"><label>Namn</label><input id="m-name" value="${esc(m.name)}" autofocus/></div>
-    <div class="fg"><label>Faktor-mat</label><input type="number" id="m-factor-mat" value="${m.factor_mat}" min="0" step="0.05"/></div>
-    <div class="fg"><label>Faktor-vin</label><input type="number" id="m-factor-vin" value="${m.factor_vin}" min="0" step="0.05"/></div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="saveMember('${periodId}','${memberId}')">Spara</button>
-      <button class="btn btn-g" onclick="openPeriodFamiliesModal('${periodId}')">Avbryt</button>
-    </div>
-  </div></div>`)
-}
-async function saveMember(periodId, memberId){
-  const name = document.getElementById('m-name').value.trim()
-  if(!name){ alert('Ange ett namn.'); return }
-  const factorMat = parseFloat(document.getElementById('m-factor-mat').value)||0
-  const factorVin = parseFloat(document.getElementById('m-factor-vin').value)||0
-  const res = await sb.from('period_members').update({name:name, factor_mat:factorMat, factor_vin:factorVin}).eq('id',memberId)
+async function updateMember(periodId, memberId, field, value){
+  const payload = {}
+  payload[field] = value
+  const res = await sb.from('period_members').update(payload).eq('id',memberId)
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
   await init(); openPeriodFamiliesModal(periodId)
 }
 async function delMember(periodId, memberId){
   if(!confirm('Ta bort personen ur perioden?')) return
   await sb.from('period_members').delete().eq('id',memberId)
+  await init(); openPeriodFamiliesModal(periodId)
+}
+
+// dagar för en hel familj på en gång (alla nuvarande personer får samma mönster)
+let familyDayState = []
+function openFamilyDaysModal(periodId, pfId){
+  const p = state.periods.find(function(x){ return x.id===periodId })
+  const dates = getDatesInPeriod(p)
+  familyDayState = Array(dates.length).fill(1)
+  renderFamilyDaysModal(periodId, pfId)
+}
+function renderFamilyDaysModal(periodId, pfId){
+  const p = state.periods.find(function(x){ return x.id===periodId })
+  const dates = getDatesInPeriod(p)
+  const pf = state.periodFamilies.find(function(x){ return x.id===pfId })
+  const total = familyDayState.reduce(function(s,v){ return s+v },0)
+  const cells = familyDayState.map(function(val,i){
+    const isOn = val>0, isHalf = val===0.5
+    return `<div class="day-cell">
+      <div class="day-cb ${isOn?(isHalf?'half':'on'):''}" onclick="toggleFamilyDay(${i},'${periodId}','${pfId}')">${isOn?(isHalf?'½':'✓'):''}</div>
+      ${isOn ? `<button class="day-half-btn ${isHalf?'on':''}" onclick="toggleFamilyHalf(${i},'${periodId}','${pfId}')">½</button>` : '<div style="height:18px"></div>'}
+      <div class="day-label">${dayLabel(dates[i])}</div>
+    </div>`
+  }).join('')
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Dagar för alla – ${esc(pf?pf.name:'')}</div>
+    <div class="hint">Sätter samma närvaro för alla nuvarande personer i familjen. Du kan justera enskilda personer efteråt via deras egen dagbadge.</div>
+    <div class="fam-days-row" style="border:none;padding:0">
+      <div class="fam-days-name"><span>Närvaro</span><span>${fmt(total,1)} av ${dates.length} dagar</span></div>
+      <div class="day-grid">${cells}</div>
+    </div>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn btn-p" onclick="saveFamilyDays('${periodId}','${pfId}')">Spara för alla</button>
+      <button class="btn btn-g" onclick="openPeriodFamiliesModal('${periodId}')">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+function toggleFamilyDay(idx, periodId, pfId){
+  familyDayState[idx] = familyDayState[idx]>0 ? 0 : 1
+  renderFamilyDaysModal(periodId, pfId)
+}
+function toggleFamilyHalf(idx, periodId, pfId){
+  familyDayState[idx] = familyDayState[idx]===0.5 ? 1 : 0.5
+  renderFamilyDaysModal(periodId, pfId)
+}
+async function saveFamilyDays(periodId, pfId){
+  const p = state.periods.find(function(x){ return x.id===periodId })
+  const dates = getDatesInPeriod(p)
+  const allDays = familyDayState.every(function(v){ return v===1 }) && familyDayState.length===dates.length
+  const payload = allDays ? {days_mode:'all', day_states:[]} : {days_mode:'custom', day_states:familyDayState}
+  const members = periodMembersFor(pfId)
+  for(const m of members){
+    const res = await sb.from('period_members').update(payload).eq('id',m.id)
+    if(res.error){ alert('Kunde inte spara för '+m.name+': '+res.error.message); return }
+  }
   await init(); openPeriodFamiliesModal(periodId)
 }
 
