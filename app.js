@@ -429,7 +429,7 @@ function renderPerioder(){
       </div>
       <div style="margin-top:8px">${famRows}</div>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}');showTab('report',document.querySelectorAll('.tab')[2])">Visa avräkning</button>
+        <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}');showTab('report',document.querySelectorAll('.tab')[1])">Visa avräkning</button>
         <button class="btn btn-g btn-sm" onclick="unlockPeriod('${p.id}')">🔓 Lås upp</button>
         <button class="btn btn-p btn-sm" onclick="clearPeriod('${p.id}')">✅ Cleara (alla har swishat)</button>
       </div>
@@ -600,7 +600,7 @@ async function savePeriod(){
   }
   state.selectedPeriodId = p.id
   localStorage.setItem('kvitton_period', p.id)
-  closeModal(); await init(); showTab('periods', document.querySelectorAll('.tab')[4])
+  closeModal(); await init(); showTab('periods', document.querySelectorAll('.tab')[3])
 }
 
 async function updatePeriodField(periodId, field, value){
@@ -649,7 +649,7 @@ async function reopenClearedPeriod(id){
   await sb.from('periods').update({status:'last', cleared_at:null}).eq('id',id)
   closeModal()
   await init()
-  showTab('periods', document.querySelectorAll('.tab')[4])
+  showTab('periods', document.querySelectorAll('.tab')[3])
 }
 async function compressPeriod(id){
   if(!confirm('Komprimera perioden? Totalsumman behålls men alla kvitton och detaljer slängs permanent. Går inte att ångra.')) return
@@ -657,7 +657,7 @@ async function compressPeriod(id){
   await sb.from('periods').update({status:'komprimerad', compressed_at:new Date().toISOString()}).eq('id',id)
   closeModal()
   await init()
-  showTab('history', document.querySelectorAll('.tab')[5])
+  showTab('history', document.querySelectorAll('.tab')[4])
 }
 async function purgePeriod(id){
   const p = state.periods.find(function(x){ return x.id===id })
@@ -674,7 +674,7 @@ async function purgePeriod(id){
   }).eq('id',id)
   closeModal()
   await init()
-  showTab('history', document.querySelectorAll('.tab')[5])
+  showTab('history', document.querySelectorAll('.tab')[4])
 }
 
 // ── PERIODFAMILJER-MODAL ─────────────────────────────────────
@@ -1063,7 +1063,7 @@ function renderReceipts(){
   const period = currentPeriod()
   if(!state.periods.filter(function(p){ return p.status==='oppen'||p.status==='last' }).length){
     return `<p class="empty">Skapa en period innan du kan registrera kvitton.</p>
-      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">📅 Skapa period</button></div>`
+      <div style="text-align:center;margin-top:10px"><button class="btn btn-p" onclick="showTab('periods', document.querySelectorAll('.tab')[3])">📅 Skapa period</button></div>`
   }
   if(!period) return '<p class="empty">Välj en period ovan.</p>'
   const locked = !isOpenPeriod(period)
@@ -1110,7 +1110,7 @@ function renderReceipts(){
 
   const addBtn = locked
     ? `<button class="btn btn-g" disabled title="Perioden är låst">🔒 Registrera</button>`
-    : `<button class="btn btn-p" onclick="showTab('bulk', document.querySelectorAll('.tab')[1])">➕ Registrera kvitton</button>`
+    : `<button class="btn btn-p" onclick="showTab('bulk')">➕ Registrera kvitton</button>`
 
   return `<div class="sh"><span class="sh-title">${esc(period.name)}</span></div>
     ${lockedBanner}${sumBar}${chips}${emptyMsg}${rows}
