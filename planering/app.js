@@ -605,20 +605,21 @@ function renderMonthGrid(year, month, periodStart, periodEnd, selectedSet, membe
   for(let d=1; d<=daysInMonth; d++) cells.push(`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`)
   while(cells.length%7!==0) cells.push(null)
 
+  const cellSize = '30px'
   const dayHeaders = ['Må','Ti','On','To','Fr','Lö','Sö']
   const cellsHtml = cells.map(dateStr=>{
-    if(!dateStr) return `<div></div>`
+    if(!dateStr) return `<div style="width:${cellSize};height:${cellSize}"></div>`
     const dayNum = parseInt(dateStr.slice(8,10))
     const inRange = dateStr>=periodStart && dateStr<=periodEnd
-    if(!inRange) return `<div style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--border)">${dayNum}</div>`
+    if(!inRange) return `<div style="width:${cellSize};height:${cellSize};display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--border)">${dayNum}</div>`
     const selected = selectedSet.has(dateStr)
-    return `<div onclick="toggleMemberDate('${memberId}','${dateStr}')" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:6px;cursor:pointer;user-select:none;${selected?'background:var(--accent);color:#fff;font-weight:700':'background:rgba(0,0,0,.045);color:var(--text)'}">${dayNum}</div>`
+    return `<div data-date="${dateStr}" onclick="toggleMemberDate(event,'${memberId}','${dateStr}')" style="width:${cellSize};height:${cellSize};display:flex;align-items:center;justify-content:center;font-size:11px;border-radius:6px;cursor:pointer;user-select:none;${selected?'background:var(--accent);color:#fff;font-weight:700':'background:rgba(0,0,0,.045);color:var(--text)'}">${dayNum}</div>`
   }).join('')
 
   return `<div style="margin-bottom:12px">
     <div style="font-size:12px;font-weight:600;margin-bottom:4px">${MONTH_NAMES_FULL[month]} ${year}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10px;color:var(--muted);margin-bottom:3px">${dayHeaders.map(h=>`<div style="text-align:center">${h}</div>`).join('')}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">${cellsHtml}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,${cellSize});gap:3px;font-size:9px;color:var(--muted);margin-bottom:3px">${dayHeaders.map(h=>`<div style="width:${cellSize};text-align:center">${h}</div>`).join('')}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,${cellSize});gap:3px">${cellsHtml}</div>
   </div>`
 }
 
@@ -634,7 +635,7 @@ function openMemberDayEditor(memberId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Dagar – ${esc(m.name)}</div>
-    <div class="hint">${esc(period.name)}, ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}. Klicka på en dag för att slå på/av. ${selectedSet.size} dag${selectedSet.size===1?'':'ar'} valda.</div>
+    <div class="hint">${esc(period.name)}, ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}. Klicka på en dag för att slå på/av. <span id="mde-count">${selectedSet.size}</span> dag${selectedSet.size===1?'':'ar'} valda.</div>
     <div style="max-height:56vh;overflow-y:auto;padding-right:2px">${monthsHtml}</div>
     <div class="btn-row" style="margin-top:8px">
       <button class="btn btn-g btn-sm" onclick="markAllMemberDates('${memberId}')">Markera hela perioden</button>
@@ -651,11 +652,30 @@ async function saveMemberDates(memberId, newDates){
   return true
 }
 
-async function toggleMemberDate(memberId, date){
+// Optimistisk toggle: ändrar bara den klickade cellen i DOM:en direkt (ingen
+// omritning av modalen), så scrollpositionen ligger kvar vid varje klick.
+async function toggleMemberDate(evt, memberId, date){
+  const el = evt.currentTarget
   const m = memberById(memberId)
-  const has = (m.day_states||[]).includes(date)
-  const newDates = has ? m.day_states.filter(d=>d!==date) : unionDates(m.day_states,[date])
-  if(await saveMemberDates(memberId, newDates)) openMemberDayEditor(memberId)
+  const had = (m.day_states||[]).includes(date)
+  const willHave = !had
+
+  el.style.background = willHave ? 'var(--accent)' : 'rgba(0,0,0,.045)'
+  el.style.color = willHave ? '#fff' : 'var(--text)'
+  el.style.fontWeight = willHave ? '700' : '400'
+  const countEl = document.getElementById('mde-count')
+  const newCount = (m.day_states||[]).length + (willHave ? 1 : -1)
+  if(countEl) countEl.textContent = newCount
+
+  const newDates = had ? m.day_states.filter(d=>d!==date) : unionDates(m.day_states,[date])
+  const ok = await saveMemberDates(memberId, newDates)
+  if(!ok){
+    // återställ cellen om sparningen misslyckades
+    el.style.background = had ? 'var(--accent)' : 'rgba(0,0,0,.045)'
+    el.style.color = had ? '#fff' : 'var(--text)'
+    el.style.fontWeight = had ? '700' : '400'
+    if(countEl) countEl.textContent = (m.day_states||[]).length
+  }
 }
 
 async function markAllMemberDates(memberId){
