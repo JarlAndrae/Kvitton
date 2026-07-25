@@ -646,21 +646,24 @@ function renderTimelineChart(vfs){
 
 // ── DIAGRAM: TIDSLINJE PER PERSON (inzoomad, grupperad per familj) ───────────
 function renderPersonTimelineChart(vfs){
+  // Bygg en radlista: en rubrikrad (ingen stapel) per familj, sedan en rad per person med stapel(ar)
   const rowsData = []
   vfs.forEach(vf=>{
-    membersFor(vf.id).forEach(m=>{
-      const segments = toSegments((m.day_states||[]).slice().sort())
-      if(segments.length) rowsData.push({ vf, m, segments })
-    })
+    const memberRows = membersFor(vf.id)
+      .map(m => ({ m, segments: toSegments((m.day_states||[]).slice().sort()) }))
+      .filter(r => r.segments.length)
+    if(!memberRows.length) return
+    rowsData.push({ type:'header', vf })
+    memberRows.forEach(r => rowsData.push({ type:'member', vf, m:r.m, segments:r.segments }))
   })
-  if(!rowsData.length) return '<p class="empty">Inga dagar inplanerade ännu.</p>'
+  if(!rowsData.some(r=>r.type==='member')) return '<p class="empty">Inga dagar inplanerade ännu.</p>'
 
   let allDates = []
-  rowsData.forEach(r => r.segments.forEach(s => { allDates.push(s.start); allDates.push(s.end) }))
+  rowsData.filter(r=>r.type==='member').forEach(r => r.segments.forEach(s => { allDates.push(s.start); allDates.push(s.end) }))
   const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
   const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
   const totalDays = Math.max(1, Math.round((toUTCms(maxDate)-toUTCms(minDate))/86400000)+1)
-  const labelW = 150, w = 700, rowH = 24, padTop = 8
+  const labelW = 150, w = 700, rowH = 22, padTop = 8
   const chartW = w - labelW
   const pxPerDay = chartW/totalDays
   const h = padTop + rowsData.length*rowH + 20
@@ -678,22 +681,15 @@ function renderPersonTimelineChart(vfs){
     cur = isoAdd(cur,1); idx++
   }
 
-  // gruppmarkeringar: en tunn linje mellan varje familjs sista rad och nästa familjs första
-  let groupLines = ''
-  for(let i=1;i<rowsData.length;i++){
-    if(rowsData[i].vf.id !== rowsData[i-1].vf.id){
-      const y = padTop + i*rowH
-      groupLines += `<line x1="0" y1="${y.toFixed(1)}" x2="${w}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
-    }
-  }
-
   const rows = rowsData.map((r,ri)=>{
     const y = padTop + ri*rowH
-    const isFirstOfGroup = ri===0 || rowsData[ri-1].vf.id !== r.vf.id
-    const fullLabel = isFirstOfGroup ? `${r.vf.name} · ${r.m.name}` : r.m.name
-    const shortLabel = fullLabel.length>20 ? fullLabel.slice(0,19)+'…' : fullLabel
+    if(r.type==='header'){
+      const fam = r.vf.name.length>22 ? r.vf.name.slice(0,21)+'…' : r.vf.name
+      return `<text x="0" y="${(y+rowH/2+4).toFixed(1)}" font-size="11" font-weight="700" fill="var(--text)">${esc(fam)}</text>`
+    }
+    const name = r.m.name.length>20 ? r.m.name.slice(0,19)+'…' : r.m.name
     const guestMark = r.m.is_guest ? ' 👤' : ''
-    const label = `<text x="0" y="${(y+rowH/2+4).toFixed(1)}" font-size="${isFirstOfGroup?'10':'11'}" font-weight="${isFirstOfGroup?'600':'400'}" fill="var(--text)">${esc(shortLabel+guestMark)}</text>`
+    const label = `<text x="10" y="${(y+rowH/2+4).toFixed(1)}" font-size="11" fill="var(--text)">${esc(name+guestMark)}</text>`
     const bars = r.segments.map(s=>{
       const x1 = labelW + Math.round((toUTCms(s.start)-toUTCms(minDate))/86400000)*pxPerDay
       const segDays = Math.round((toUTCms(s.end)-toUTCms(s.start))/86400000)+1
@@ -706,7 +702,7 @@ function renderPersonTimelineChart(vfs){
 
   return `<div class="card" style="padding:12px 14px 8px;margin-bottom:12px;overflow-x:auto">
     <div style="font-size:12px;color:var(--muted);margin-bottom:6px">👤 Tidslinje per person (grupperad per familj, 👤 = gäst)</div>
-    <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:480px;height:${h}px;display:block">${weekMarks}${groupLines}${rows}</svg>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:480px;height:${h}px;display:block">${weekMarks}${rows}</svg>
     <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px;padding-left:${labelW}px">
       <span>${esc(fmtDate(minDate))}</span><span>${esc(fmtDate(maxDate))}</span>
     </div>
