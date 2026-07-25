@@ -1,13 +1,11 @@
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
-let state = { templates:[], templateMembers:[], platser:[], vistelseFamilies:[], vistelseMembers:[] }
+let state = { templates:[], templateMembers:[], platser:[], vistelsePeriods:[], vistelseFamilies:[], vistelseMembers:[] }
 let activeTab = 'platser'
 let calendarPlatsId = null
+let calendarPeriodId = null
 let calendarChartMode = 'timeline'
 let weekAnchorDate = null
-let calendarFilterMode = 'all' // 'all' | 'label:<label>' | 'custom'
-let calendarCustomStart = null
-let calendarCustomEnd = null
 let currentKlanId = null
 let currentKlanName = ''
 
@@ -75,16 +73,18 @@ function renderSwitcher(){
 async function init(){
   showLoading()
   try{
-    const [tp,tm,pl,vf,vm] = await Promise.all([
+    const [tp,tm,pl,vp,vf,vm] = await Promise.all([
       sb.from('family_templates').select('*').eq('klan_id',currentKlanId).order('name'),
       sb.from('template_members').select('*').eq('klan_id',currentKlanId).order('sort_order'),
       sb.from('platser').select('*').eq('klan_id',currentKlanId).order('recurring',{ascending:false}).order('name'),
+      sb.from('vistelse_periods').select('*').eq('klan_id',currentKlanId).order('starts_at',{ascending:false}),
       sb.from('vistelse_families').select('*').eq('klan_id',currentKlanId).order('created_at'),
       sb.from('vistelse_members').select('*').eq('klan_id',currentKlanId).order('created_at'),
     ])
     state.templates = tp.data||[]
     state.templateMembers = tm.data||[]
     state.platser = pl.data||[]
+    state.vistelsePeriods = vp.data||[]
     state.vistelseFamilies = vf.data||[]
     state.vistelseMembers = vm.data||[]
     renderActive()
@@ -181,13 +181,7 @@ function toSegments(sortedDates){
   return segs
 }
 
-// om label saknas, föreslå årtalet från ett startdatum – rent kosmetiskt, styr ingen logik
-async function maybeSetDefaultLabel(vf, startDate){
-  if(vf.label) return
-  const year = startDate.slice(0,4)
-  const { error } = await sb.from('vistelse_families').update({label:year}).eq('id',vf.id)
-  if(!error) vf.label = year
-}
+function periodById(id){ return state.vistelsePeriods.find(p=>p.id===id) }
 
 // ── PLATSER ───────────────────────────────────────────────────────────────────
 function renderPlatser(){
@@ -246,47 +240,23 @@ async function delPlats(id){
 }
 
 // ── KALENDER / VISTELSEFAMILJER ───────────────────────────────────────────────
-function setCalendarPlats(id){ calendarPlatsId = id; weekAnchorDate = null; calendarFilterMode = 'all'; calendarCustomStart = null; calendarCustomEnd = null; renderActive() }
+function setCalendarPlats(id){ calendarPlatsId = id; calendarPeriodId = null; weekAnchorDate = null; renderActive() }
 function setCalendarChartMode(mode){ calendarChartMode = mode; renderActive() }
-function setCalendarFilter(mode){ calendarFilterMode = mode; if(mode!=='custom'){ calendarCustomStart=null; calendarCustomEnd=null } weekAnchorDate = null; renderActive() }
-
-function distinctLabels(vfs){
-  const labels = Array.from(new Set(vfs.map(vf=>vf.label).filter(Boolean)))
-  return labels.sort((a,b)=>b.localeCompare(a,'sv',{numeric:true})) // senaste först
-}
+function setCalendarPeriod(id){ calendarPeriodId = id; weekAnchorDate = null; renderActive() }
 
 // Lös koppling, ingen databas: redigera listan här om ni vill ändra vilka
-// standardperioder som föreslås vid "Kopiera in familj" / "Adhoc-familj".
+// standardperioder som föreslås som namn när man skapar en ny period.
 const STANDARD_PERIOD_NAMES = ['Påsk','Sommar','Jul','Nyår']
 
-function suggestedLabels(platsId){
-  const used = distinctLabels(state.vistelseFamilies.filter(vf=>vf.plats_id===platsId))
+function suggestedPeriodNames(){
   const y = new Date().getFullYear()
-  const generated = []
-  STANDARD_PERIOD_NAMES.forEach(name=>{ generated.push(`${name} ${y}`); generated.push(`${name} ${y+1}`) })
-  const combined = [...used, ...generated.filter(g=>!used.includes(g))]
-  return combined.slice(0,10)
+  const names = []
+  STANDARD_PERIOD_NAMES.forEach(n=>{ names.push(`${n} ${y}`); names.push(`${n} ${y+1}`) })
+  return names
 }
 
-function labelChips(inputId, platsId){
-  const chips = suggestedLabels(platsId)
-  if(!chips.length) return ''
-  return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
-    ${chips.map(l=>`<button type="button" class="btn btn-g btn-sm" onclick="document.getElementById('${inputId}').value='${esc(l).replace(/'/g,"\\'")}'">${esc(l)}</button>`).join('')}
-  </div>`
-}
-
-// filtrerar vilka familjer som visas i diagram + familjelista, utan att röra underliggande data
-function periodFilteredVfs(vfs){
-  if(calendarFilterMode==='all') return vfs
-  if(calendarFilterMode.startsWith('label:')){
-    const label = calendarFilterMode.slice(6)
-    return vfs.filter(vf=>vf.label===label)
-  }
-  if(calendarFilterMode==='custom' && calendarCustomStart && calendarCustomEnd){
-    return vfs.filter(vf=>familyDates(vf.id).some(d=>d>=calendarCustomStart && d<=calendarCustomEnd))
-  }
-  return vfs
+function periodsForPlats(platsId){
+  return state.vistelsePeriods.filter(p=>p.plats_id===platsId).sort((a,b)=>b.starts_at.localeCompare(a.starts_at))
 }
 
 function renderKalender(){
@@ -297,21 +267,33 @@ function renderKalender(){
     calendarPlatsId = state.platser[0].id
   }
   const platsOpts = state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===calendarPlatsId?'selected':''}>${pl.recurring?'🔁 ':''}${esc(pl.name)}</option>`).join('')
-  const allVfs = state.vistelseFamilies.filter(vf=>vf.plats_id===calendarPlatsId)
-  const vfs = periodFilteredVfs(allVfs)
 
-  const labels = distinctLabels(allVfs)
-  const customText = calendarFilterMode==='custom' && calendarCustomStart && calendarCustomEnd
-    ? `${fmtDateY(calendarCustomStart)} – ${fmtDateY(calendarCustomEnd)}`
-    : null
-  const periodFilter = allVfs.length ? `<div class="btn-row" style="margin-bottom:8px;flex-wrap:wrap">
-    <button class="btn ${calendarFilterMode==='all'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarFilter('all')">Alla</button>
-    ${labels.map(l=>`<span style="display:inline-flex;align-items:center">
-      <button class="btn ${calendarFilterMode==='label:'+l?'btn-p':'btn-g'} btn-sm" style="border-radius:8px 0 0 8px" onclick="setCalendarFilter('label:${esc(l)}')">${esc(l)}</button>
-      <button class="btn ${calendarFilterMode==='label:'+l?'btn-p':'btn-g'} btn-sm" style="border-radius:0 8px 8px 0;border-left:1px solid rgba(255,255,255,.3);padding-left:6px;padding-right:8px" title="Döp om" onclick="event.stopPropagation(); renameLabelModal('${calendarPlatsId}','${esc(l).replace(/'/g,"\\'")}')">✏️</button>
-    </span>`).join('')}
-    <button class="btn ${calendarFilterMode==='custom'?'btn-p':'btn-g'} btn-sm" onclick="openCustomPeriodModal()">📅 ${customText?esc(customText):'Anpassat intervall…'}</button>
-  </div>` : ''
+  const periods = periodsForPlats(calendarPlatsId)
+  if(!calendarPeriodId || !periods.find(p=>p.id===calendarPeriodId)){
+    calendarPeriodId = periods.length ? periods[0].id : null
+  }
+  const platsHeader = `<div class="sh"><span class="sh-title">Kalender</span></div>
+    <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
+    <div class="hint">Vistelseplanering är helt separat från avräkning och mandagar i Hushållskostnader.</div>`
+
+  if(!periods.length){
+    return `${platsHeader}
+      <p class="empty">Inga perioder ännu för ${esc(platsName(calendarPlatsId))}. Skapa en period (t.ex. "Sommar 2026") för att börja planera vilka dagar var och en är där.</p>
+      <button class="btn btn-p" onclick="newPeriodModal('${calendarPlatsId}')">+ Ny period</button>`
+  }
+
+  const period = periodById(calendarPeriodId)
+  const periodOpts = periods.map(p=>`<option value="${p.id}" ${p.id===calendarPeriodId?'selected':''}>${esc(p.name)} (${fmtDate(p.starts_at)}–${fmtDate(p.ends_at)})</option>`).join('')
+  const vfs = state.vistelseFamilies.filter(vf=>vf.period_id===calendarPeriodId)
+
+  const periodBar = `<div class="fr" style="align-items:flex-end;margin-bottom:8px;flex-wrap:wrap">
+    <div class="fg" style="max-width:280px;flex:1"><label>Period</label><select onchange="setCalendarPeriod(this.value)">${periodOpts}</select></div>
+    <div class="btn-row">
+      <button class="btn btn-g btn-sm" onclick="newPeriodModal('${calendarPlatsId}')">+ Ny period</button>
+      <button class="btn btn-g btn-sm" onclick="editPeriodModal('${period.id}')">✏️ Redigera</button>
+      <button class="btn btn-d btn-sm" onclick="delPeriod('${period.id}')">Ta bort period</button>
+    </div>
+  </div>`
 
   const chartToggle = `<div class="btn-row" style="margin-bottom:8px">
     <button class="btn ${calendarChartMode==='bar'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('bar')">📊 Diagram</button>
@@ -320,95 +302,117 @@ function renderKalender(){
     <button class="btn ${calendarChartMode==='week'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('week')">🔎 Vecka</button>
   </div>`
   const chartHtml = calendarChartMode==='timeline'
-    ? renderTimelineChart(vfs)
+    ? renderTimelineChart(vfs, period)
     : calendarChartMode==='people'
-    ? renderPersonTimelineChart(vfs)
+    ? renderPersonTimelineChart(vfs, period)
     : calendarChartMode==='week'
-    ? renderWeekGantt(vfs)
-    : renderOccupancyChart(computeDailyOccupancy(vfs), vfs)
+    ? renderWeekGantt(vfs, period)
+    : renderOccupancyChart(computeDailyOccupancy(vfs, period), vfs)
 
-  const familyCards = vfs.map(vf => renderFamilyCard(vf)).join('')
-  const filterActive = calendarFilterMode!=='all'
-  const emptyFilteredMsg = filterActive
-    ? '<p class="empty">Inga familjer i den valda perioden. Välj "Alla" eller en annan period ovan.</p>'
-    : '<p class="empty">Inga familjer inkopierade för det här stället ännu.</p>'
+  const familyCards = vfs.map(vf => renderFamilyCard(vf, period)).join('')
 
-  return `<div class="sh"><span class="sh-title">Kalender</span>
-      <div class="btn-row">
-        <button class="btn btn-g btn-sm" onclick="copyInFamilyModal('${calendarPlatsId}')">+ Kopiera in familj</button>
-        <button class="btn btn-p btn-sm" onclick="newAdhocFamilyModal('${calendarPlatsId}')">+ Adhoc-familj</button>
-      </div>
+  return `${platsHeader}
+    ${periodBar}
+    <div class="btn-row" style="margin-bottom:10px">
+      <button class="btn btn-g btn-sm" onclick="copyInFamilyModal('${calendarPlatsId}','${period.id}')">+ Kopiera in familj</button>
+      <button class="btn btn-p btn-sm" onclick="newAdhocFamilyModal('${calendarPlatsId}','${period.id}')">+ Adhoc-familj</button>
     </div>
-    <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
-    <div class="hint">Vistelseplanering är helt separat från avräkning och mandagar i Hushållskostnader. Kopiera in en familj för att börja planera vilka dagar var och en är i ${esc(platsName(calendarPlatsId))}.</div>
-    ${periodFilter}
     ${chartToggle}
     ${vfs.length ? chartHtml : ''}
-    <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Familjer${filterActive?' <span class="tag">filtrerat</span>':''}</span></div>
-    ${vfs.length ? familyCards : emptyFilteredMsg}`
+    <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Familjer i ${esc(period.name)}</span></div>
+    ${vfs.length ? familyCards : '<p class="empty">Inga familjer inkopierade i den här perioden ännu.</p>'}`
 }
 
-function openCustomPeriodModal(){
+// ── PERIODER ──────────────────────────────────────────────────────────────────
+function newPeriodModal(platsId){
+  const chips = suggestedPeriodNames()
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">Anpassat intervall</div>
-    <div class="fr">
-      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="cp-start" value="${calendarCustomStart||today()}"/></div>
-      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="cp-end" value="${calendarCustomEnd||today()}"/></div>
+    <div class="modal-title">Ny period – ${esc(platsName(platsId))}</div>
+    <div class="fg"><label>Namn</label>
+      <input id="np-name" placeholder="t.ex. Sommar 2026" autofocus/>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
+        ${chips.map(c=>`<button type="button" class="btn btn-g btn-sm" onclick="document.getElementById('np-name').value='${esc(c).replace(/'/g,"\\'")}'">${esc(c)}</button>`).join('')}
+      </div>
     </div>
-    <div class="hint">Visar familjer som har minst en dag inom intervallet.</div>
+    <div class="fr">
+      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="np-start" value="${today()}"/></div>
+      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="np-end" value="${today()}"/></div>
+    </div>
+    <div class="hint">Perioden sätter ramen för vilka datum ni kan välja när ni sätter dagar för familjer i den.</div>
     <div class="btn-row">
-      <button class="btn btn-p" onclick="applyCustomPeriod()">Visa</button>
+      <button class="btn btn-p" onclick="savePeriod('${platsId}')">Skapa</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
 }
 
-function applyCustomPeriod(){
-  const start = document.getElementById('cp-start').value
-  const end = document.getElementById('cp-end').value
+async function savePeriod(platsId){
+  const name = document.getElementById('np-name').value.trim()
+  const start = document.getElementById('np-start').value
+  const end = document.getElementById('np-end').value
+  if(!name){ alert('Ange ett namn.'); return }
   if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
   if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
-  calendarFilterMode = 'custom'; calendarCustomStart = start; calendarCustomEnd = end; weekAnchorDate = null
-  closeModal(); renderActive()
+  const res = await sb.from('vistelse_periods').insert({ klan_id: currentKlanId, plats_id: platsId, name, starts_at: start, ends_at: end }).select().single()
+  if(res.error){ alert('Kunde inte skapa perioden: '+res.error.message); return }
+  closeModal()
+  calendarPeriodId = res.data.id
+  await init()
 }
 
-function renameLabelModal(platsId, oldLabel){
+function editPeriodModal(periodId){
+  const p = periodById(periodId)
+  if(!p) return
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">Döp om vistelseomgång</div>
-    <div class="hint">Byter namn på "${esc(oldLabel)}" för alla familjer som just nu har den här etiketten på ${esc(platsName(platsId))}.</div>
-    <div class="fg"><label>Nytt namn</label><input id="rl-new" value="${esc(oldLabel)}" autofocus/></div>
+    <div class="modal-title">Redigera period</div>
+    <div class="fg"><label>Namn</label><input id="ep-name" value="${esc(p.name)}" autofocus/></div>
+    <div class="fr">
+      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="ep-start" value="${p.starts_at}"/></div>
+      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="ep-end" value="${p.ends_at}"/></div>
+    </div>
+    <div class="hint">Krymper du intervallet tas inga redan satta dagar bort automatiskt – de blir bara liggande utanför periodens ram tills någon redigerar dem.</div>
     <div class="btn-row">
-      <button class="btn btn-p" onclick="applyRenameLabel('${platsId}','${esc(oldLabel).replace(/'/g,"\\'")}')">Spara</button>
+      <button class="btn btn-p" onclick="saveEditPeriod('${periodId}')">Spara</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
 }
 
-async function applyRenameLabel(platsId, oldLabel){
-  const newLabel = document.getElementById('rl-new').value.trim()
-  if(!newLabel){ alert('Ange ett namn.'); return }
-  const { error } = await sb.from('vistelse_families').update({label:newLabel}).eq('plats_id',platsId).eq('label',oldLabel)
-  if(error){ alert('Kunde inte döpa om: '+error.message); return }
-  if(calendarFilterMode==='label:'+oldLabel) calendarFilterMode = 'label:'+newLabel
+async function saveEditPeriod(periodId){
+  const name = document.getElementById('ep-name').value.trim()
+  const start = document.getElementById('ep-start').value
+  const end = document.getElementById('ep-end').value
+  if(!name){ alert('Ange ett namn.'); return }
+  if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
+  if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
+  const { error } = await sb.from('vistelse_periods').update({name, starts_at:start, ends_at:end}).eq('id',periodId)
+  if(error){ alert('Kunde inte spara: '+error.message); return }
   closeModal(); await init()
 }
 
+async function delPeriod(periodId){
+  if(!confirm('Ta bort perioden? Alla familjer och personers dagar som hör till den här perioden tas bort samtidigt. Går inte att ångra.')) return
+  const { error } = await sb.from('vistelse_periods').delete().eq('id',periodId)
+  if(error){ alert('Kunde inte ta bort perioden: '+error.message); return }
+  calendarPeriodId = null
+  await init()
+}
+
 // ── KOPIERA IN / ADHOC ────────────────────────────────────────────────────────
-function copyInFamilyModal(platsId){
-  const opts = state.templates.map(t=>`<div class="slim-row" style="cursor:pointer" onclick="copyInTemplate('${platsId}','${t.id}')">
-    <div style="flex:1"><div class="slim-desc">${esc(t.name)}</div><div class="slim-sub">${templateMembersFor(t.id).length} person(er) i mallen</div></div>
-    <div class="slim-actions"><button class="btn btn-p btn-sm">Kopiera in</button></div>
-  </div>`).join('')
+function copyInFamilyModal(platsId, periodId){
+  const alreadyIn = new Set(state.vistelseFamilies.filter(vf=>vf.period_id===periodId).map(vf=>vf.template_id))
+  const opts = state.templates.map(t=>{
+    const already = alreadyIn.has(t.id)
+    return `<div class="slim-row" style="cursor:pointer" onclick="copyInTemplate('${platsId}','${periodId}','${t.id}')">
+      <div style="flex:1"><div class="slim-desc">${esc(t.name)}${already?' <span class="tag">✓ Redan inkopierad</span>':''}</div><div class="slim-sub">${templateMembersFor(t.id).length} person(er) i mallen</div></div>
+      <div class="slim-actions"><button class="btn btn-p btn-sm">Kopiera in${already?' igen':''}</button></div>
+    </div>`
+  }).join('')
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">Kopiera in familj – ${esc(platsName(platsId))}</div>
-    <div class="fg"><label>Vistelseomgång</label>
-      <input id="cf-label" placeholder="t.ex. Sommar 2026"/>
-      ${labelChips('cf-label', platsId)}
-    </div>
-    <div class="hint">Klicka på ett förslag eller skriv eget. Lämna tomt så föreslår vi ett årtal automatiskt när du sätter dagar.</div>
+    <div class="modal-title">Kopiera in familj – ${esc(periodById(periodId)?.name||'')}</div>
     ${state.templates.length ? opts : '<p class="empty">Inga familjemallar finns ännu – skapa en i Hushållskostnader, eller lägg till en adhoc-familj här istället.</p>'}
     <div class="btn-row" style="margin-top:10px">
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
@@ -416,13 +420,13 @@ function copyInFamilyModal(platsId){
   </div></div>`)
 }
 
-async function copyInTemplate(platsId, templateId){
+async function copyInTemplate(platsId, periodId, templateId){
   const tpl = state.templates.find(t=>t.id===templateId)
   if(!tpl) return
-  const labelEl = document.getElementById('cf-label')
-  const label = labelEl ? labelEl.value.trim() || null : null
+  const already = state.vistelseFamilies.some(vf=>vf.period_id===periodId && vf.template_id===templateId)
+  if(already && !confirm(`"${tpl.name}" är redan inkopierad i den här perioden. Kopiera in en gång till ändå?`)) return
   const res = await sb.from('vistelse_families').insert({
-    klan_id: currentKlanId, plats_id: platsId, template_id: templateId, name: tpl.name, is_adhoc:false, label
+    klan_id: currentKlanId, plats_id: platsId, period_id: periodId, template_id: templateId, name: tpl.name, is_adhoc:false
   }).select().single()
   if(res.error){ alert('Kunde inte kopiera in familjen: '+res.error.message); return }
   const tmembers = templateMembersFor(templateId)
@@ -434,28 +438,22 @@ async function copyInTemplate(platsId, templateId){
   closeModal(); await init()
 }
 
-function newAdhocFamilyModal(platsId){
-  const existingLabels = distinctLabels(state.vistelseFamilies.filter(vf=>vf.plats_id===platsId))
+function newAdhocFamilyModal(platsId, periodId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">Ny adhoc-familj – ${esc(platsName(platsId))}</div>
+    <div class="modal-title">Ny adhoc-familj – ${esc(periodById(periodId)?.name||'')}</div>
     <div class="fg"><label>Namn</label><input id="af-name" placeholder="t.ex. Vänner från Göteborg" autofocus/></div>
-    <div class="fg"><label>Vistelseomgång</label>
-      <input id="af-label" list="af-label-list" placeholder="t.ex. Sommar 2026" value="${existingLabels[0]?esc(existingLabels[0]):''}"/>
-      <datalist id="af-label-list">${existingLabels.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
-    </div>
     <div class="btn-row">
-      <button class="btn btn-p" onclick="saveAdhocFamily('${platsId}')">Skapa</button>
+      <button class="btn btn-p" onclick="saveAdhocFamily('${platsId}','${periodId}')">Skapa</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
 }
 
-async function saveAdhocFamily(platsId){
+async function saveAdhocFamily(platsId, periodId){
   const name = document.getElementById('af-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  const label = document.getElementById('af-label').value.trim() || null
-  const { error } = await sb.from('vistelse_families').insert({ klan_id: currentKlanId, plats_id: platsId, template_id:null, name, is_adhoc:true, label })
+  const { error } = await sb.from('vistelse_families').insert({ klan_id: currentKlanId, plats_id: platsId, period_id: periodId, template_id:null, name, is_adhoc:true })
   if(error){ alert('Kunde inte skapa familjen: '+error.message); return }
   closeModal(); await init()
 }
@@ -475,14 +473,8 @@ async function updateVistelseFamilyName(vfId, name){
   const vf = vfById(vfId); if(vf) vf.name = name
 }
 
-async function updateVistelseFamilyLabel(vfId, label){
-  const { error } = await sb.from('vistelse_families').update({label: label.trim() || null}).eq('id',vfId)
-  if(error){ alert('Kunde inte spara etiketten: '+error.message); return }
-  const vf = vfById(vfId); if(vf) vf.label = label.trim() || null
-}
-
 // ── FAMILJEKORT ───────────────────────────────────────────────────────────────
-function renderFamilyCard(vf){
+function renderFamilyCard(vf, period){
   const members = membersFor(vf.id)
   const dates = familyDates(vf.id)
   const rangeLabel = dates.length ? `${fmtDateY(dates[0])} – ${fmtDateY(dates[dates.length-1])}` : 'Inga dagar satta ännu'
@@ -507,9 +499,6 @@ function renderFamilyCard(vf){
       <div style="flex:1;min-width:0">
         <input value="${esc(vf.name)}" onchange="updateVistelseFamilyName('${vf.id}',this.value)" style="font-weight:600;font-size:15px;border:none;background:transparent;padding:2px 0;width:100%" />
         <div class="card-sub">${esc(rangeLabel)}</div>
-        <div style="margin-top:4px">
-          <input value="${esc(vf.label||'')}" placeholder="Etikett, t.ex. Sommar 2026" onchange="updateVistelseFamilyLabel('${vf.id}',this.value)" style="font-size:12px;color:var(--muted);border:1px dashed var(--border);border-radius:6px;padding:2px 6px;width:180px"/>
-        </div>
       </div>
       <div class="btn-row" style="flex-direction:column;align-items:flex-end">
         <button class="btn btn-g btn-sm" onclick="addPersonModal('${vf.id}')">+ Person</button>
@@ -552,6 +541,8 @@ async function delMember(memberId){
 
 // "🙋 Sätt dagar för alla" – ersätter (inte adderar) valda medlemmars dagar med ett datumintervall
 function bulkSetDatesModal(vfId){
+  const vf = vfById(vfId)
+  const period = periodById(vf.period_id)
   const members = membersFor(vfId)
   const rows = members.map(m=>`<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:3px 0">
     <input type="checkbox" class="bulk-member" value="${m.id}" checked style="width:auto"/> ${esc(m.name)}
@@ -559,10 +550,10 @@ function bulkSetDatesModal(vfId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Sätt dagar för alla – ${esc(vfById(vfId)?.name||'')}</div>
-    <div class="hint">Detta ersätter de valda personernas nuvarande dagar med intervallet nedan. Justera enskilda personer efteråt via deras egen "📅 Dagar"-knapp.</div>
+    <div class="hint">Detta ersätter de valda personernas nuvarande dagar med intervallet nedan (måste ligga inom perioden ${esc(period.name)}: ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}). Justera enskilda personer efteråt via deras egen "📅 Dagar"-knapp.</div>
     <div class="fr">
-      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="bulk-start" value="${today()}"/></div>
-      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="bulk-end" value="${today()}"/></div>
+      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="bulk-start" min="${period.starts_at}" max="${period.ends_at}" value="${period.starts_at}"/></div>
+      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="bulk-end" min="${period.starts_at}" max="${period.ends_at}" value="${period.ends_at}"/></div>
     </div>
     <div class="fg"><label>Gäller personer</label>${rows || '<div class="card-sub">Inga personer att sätta dagar för – lägg till en person först.</div>'}</div>
     <div class="btn-row">
@@ -573,10 +564,13 @@ function bulkSetDatesModal(vfId){
 }
 
 async function saveBulkDates(vfId){
+  const vf = vfById(vfId)
+  const period = periodById(vf.period_id)
   const start = document.getElementById('bulk-start').value
   const end = document.getElementById('bulk-end').value
   if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
   if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
+  if(start < period.starts_at || end > period.ends_at){ alert(`Datumen måste ligga inom perioden ${period.name} (${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}).`); return }
   const ids = Array.from(document.querySelectorAll('.bulk-member:checked')).map(el=>el.value)
   if(!ids.length){ alert('Välj minst en person.'); return }
   const dates = datesBetween(start,end)
@@ -584,8 +578,6 @@ async function saveBulkDates(vfId){
     const { error } = await sb.from('vistelse_members').update({day_states:dates}).eq('id',id)
     if(error){ alert('Kunde inte spara dagar för en av personerna: '+error.message); return }
   }
-  const vf = vfById(vfId)
-  if(vf) await maybeSetDefaultLabel(vf, start)
   closeModal(); await init()
 }
 
@@ -593,6 +585,8 @@ async function saveBulkDates(vfId){
 function openMemberDayEditor(memberId){
   const m = memberById(memberId)
   if(!m) return
+  const vf = vfById(m.vistelse_family_id)
+  const period = periodById(vf.period_id)
   const dates = (m.day_states||[]).slice().sort()
   const chips = dates.map(d=>`<span class="tag" style="display:inline-flex;align-items:center;gap:5px;margin:2px">
       ${esc(fmtDateY(d))}
@@ -601,19 +595,20 @@ function openMemberDayEditor(memberId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Dagar – ${esc(m.name)}</div>
+    <div class="hint">Perioden ${esc(period.name)} sträcker sig ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)} – dagar utanför det går inte att lägga till här.</div>
     <div class="fg"><label>Nuvarande dagar (${dates.length})</label>
       <div style="display:flex;flex-wrap:wrap;gap:2px">${chips || '<span class="card-sub">Inga dagar satta</span>'}</div>
     </div>
     <div class="fg"><label>Lägg till intervall</label>
       <div class="fr">
-        <input type="date" id="md-range-start" value="${today()}" style="flex:1"/>
-        <input type="date" id="md-range-end" value="${today()}" style="flex:1"/>
+        <input type="date" id="md-range-start" min="${period.starts_at}" max="${period.ends_at}" value="${period.starts_at}" style="flex:1"/>
+        <input type="date" id="md-range-end" min="${period.starts_at}" max="${period.ends_at}" value="${period.ends_at}" style="flex:1"/>
         <button class="btn btn-g btn-sm" onclick="addMemberDateRange('${memberId}')">Lägg till</button>
       </div>
     </div>
     <div class="fg"><label>Lägg till enstaka dag</label>
       <div class="fr">
-        <input type="date" id="md-single" value="${today()}" style="flex:1"/>
+        <input type="date" id="md-single" min="${period.starts_at}" max="${period.ends_at}" value="${period.starts_at}" style="flex:1"/>
         <button class="btn btn-g btn-sm" onclick="addMemberSingleDate('${memberId}')">Lägg till</button>
       </div>
     </div>
@@ -637,24 +632,20 @@ async function addMemberDateRange(memberId){
   if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
   if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
   const m = memberById(memberId)
+  const period = periodById(vfById(m.vistelse_family_id).period_id)
+  if(start < period.starts_at || end > period.ends_at){ alert(`Datumen måste ligga inom perioden ${period.name}.`); return }
   const merged = unionDates(m.day_states, datesBetween(start,end))
-  if(await saveMemberDates(memberId, merged)){
-    const vf = vfById(m.vistelse_family_id)
-    if(vf) await maybeSetDefaultLabel(vf, start)
-    openMemberDayEditor(memberId)
-  }
+  if(await saveMemberDates(memberId, merged)) openMemberDayEditor(memberId)
 }
 
 async function addMemberSingleDate(memberId){
   const d = document.getElementById('md-single').value
   if(!d){ alert('Ange ett datum.'); return }
   const m = memberById(memberId)
+  const period = periodById(vfById(m.vistelse_family_id).period_id)
+  if(d < period.starts_at || d > period.ends_at){ alert(`Datumet måste ligga inom perioden ${period.name}.`); return }
   const merged = unionDates(m.day_states, [d])
-  if(await saveMemberDates(memberId, merged)){
-    const vf = vfById(m.vistelse_family_id)
-    if(vf) await maybeSetDefaultLabel(vf, d)
-    openMemberDayEditor(memberId)
-  }
+  if(await saveMemberDates(memberId, merged)) openMemberDayEditor(memberId)
 }
 
 async function removeMemberDate(memberId, date){
@@ -675,15 +666,10 @@ function familyColorFor(vfs, vfId){
   return FAMILY_COLORS[idx>=0 ? idx%FAMILY_COLORS.length : 0]
 }
 
-function computeDailyOccupancy(vfs){
-  let allDates = []
-  vfs.forEach(vf => { allDates = allDates.concat(familyDates(vf.id)) })
-  if(!allDates.length) return []
-  const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
-  const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
+function computeDailyOccupancy(vfs, period){
   const days = []
-  let cur = minDate, guard = 0
-  while(cur <= maxDate && guard < 3660){
+  let cur = period.starts_at, guard = 0
+  while(cur <= period.ends_at && guard < 3660){
     guard++
     const byFamily = vfs.map(vf=>{
       const count = membersFor(vf.id).filter(m=>(m.day_states||[]).includes(cur)).length
@@ -749,13 +735,10 @@ function renderOccupancyChart(days, vfs){
 }
 
 // ── DIAGRAM: TIDSLINJE PER FAMILJ (flera segment per familj, hanterar luckor) ─
-function renderTimelineChart(vfs){
+function renderTimelineChart(vfs, period){
   const rowsData = vfs.map(vf => ({ vf, segments: toSegments(familyDates(vf.id)) })).filter(r=>r.segments.length)
-  if(!rowsData.length) return '<p class="empty">Inga dagar inplanerade ännu.</p>'
-  let allDates = []
-  rowsData.forEach(r => r.segments.forEach(s => { allDates.push(s.start); allDates.push(s.end) }))
-  const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
-  const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
+  if(!rowsData.length) return '<p class="empty">Inga dagar inplanerade ännu i den här perioden.</p>'
+  const minDate = period.starts_at, maxDate = period.ends_at
   const totalDays = Math.max(1, Math.round((toUTCms(maxDate)-toUTCms(minDate))/86400000)+1)
   const labelW = 130, w = 700, rowH = 26, padTop = 20
   const chartW = w - labelW
@@ -802,7 +785,7 @@ function renderTimelineChart(vfs){
 }
 
 // ── DIAGRAM: TIDSLINJE PER PERSON (inzoomad, grupperad per familj) ───────────
-function renderPersonTimelineChart(vfs){
+function renderPersonTimelineChart(vfs, period){
   // Bygg en radlista: en rubrikrad (ingen stapel) per familj, sedan en rad per person med stapel(ar)
   const rowsData = []
   vfs.forEach(vf=>{
@@ -813,12 +796,9 @@ function renderPersonTimelineChart(vfs){
     rowsData.push({ type:'header', vf })
     memberRows.forEach(r => rowsData.push({ type:'member', vf, m:r.m, segments:r.segments }))
   })
-  if(!rowsData.some(r=>r.type==='member')) return '<p class="empty">Inga dagar inplanerade ännu.</p>'
+  if(!rowsData.some(r=>r.type==='member')) return '<p class="empty">Inga dagar inplanerade ännu i den här perioden.</p>'
 
-  let allDates = []
-  rowsData.filter(r=>r.type==='member').forEach(r => r.segments.forEach(s => { allDates.push(s.start); allDates.push(s.end) }))
-  const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
-  const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
+  const minDate = period.starts_at, maxDate = period.ends_at
   const totalDays = Math.max(1, Math.round((toUTCms(maxDate)-toUTCms(minDate))/86400000)+1)
   const labelW = 150, w = 700, rowH = 22, padTop = 20
   const chartW = w - labelW
@@ -872,14 +852,21 @@ function renderPersonTimelineChart(vfs){
 }
 
 // ── VECKOVY – redigerbar per person ───────────────────────────────────────────
-function shiftWeek(dir){ weekAnchorDate = isoAdd(weekAnchorDate, dir*7); renderActive() }
+function shiftWeek(dir){
+  weekAnchorDate = isoAdd(weekAnchorDate, dir*7)
+  renderActive()
+}
 
-function renderWeekGantt(vfs){
+function renderWeekGantt(vfs, period){
   if(weekAnchorDate===null){
     let allDates = []
     vfs.forEach(vf => { allDates = allDates.concat(familyDates(vf.id)) })
-    weekAnchorDate = allDates.length ? allDates.sort()[0] : today()
+    weekAnchorDate = allDates.length ? allDates.sort()[0] : period.starts_at
   }
+  // håll ankaret inom rimligt avstånd från periodens gränser (± en vecka) så man kan
+  // se hela periodens sista/första vecka, men inte navigera hur långt bort som helst
+  if(weekAnchorDate < isoAdd(period.starts_at,-6)) weekAnchorDate = period.starts_at
+  if(weekAnchorDate > period.ends_at) weekAnchorDate = period.ends_at
   const weekDates = getWeekDates(weekAnchorDate)
   const weekStart = weekDates[0], weekEnd = weekDates[6]
   const wn = isoWeekNumber(weekStart)
@@ -962,12 +949,13 @@ async function toggleWeekDay(memberId, date){
   const m = memberById(memberId)
   if(!m) return
   const has = (m.day_states||[]).includes(date)
-  const newDates = has ? m.day_states.filter(d=>d!==date) : unionDates(m.day_states,[date])
-  const ok = await saveMemberDates(memberId, newDates)
-  if(ok && !has){
+  if(!has){
     const vf = vfById(m.vistelse_family_id)
-    if(vf) await maybeSetDefaultLabel(vf, date)
+    const period = periodById(vf.period_id)
+    if(date < period.starts_at || date > period.ends_at){ alert(`Datumet ligger utanför perioden ${period.name}.`); return }
   }
+  const newDates = has ? m.day_states.filter(d=>d!==date) : unionDates(m.day_states,[date])
+  await saveMemberDates(memberId, newDates)
   renderActive()
 }
 
