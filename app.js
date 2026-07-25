@@ -1217,24 +1217,38 @@ function renderBulk(el){
 async function saveBulkRows(){
   const period = currentPeriod()
   if(!period){ alert('Välj en period.'); return }
-  const valid = bulkRows.filter(function(r){ return r.desc.trim() && parseFloat(r.amount)>0 })
-  if(!valid.length){ alert('Fyll i minst en rad med beskrivning och belopp.'); return }
-  const missingPayerRows = []
-  bulkRows.forEach(function(r,i){
-    if(r.desc.trim() && parseFloat(r.amount)>0 && !r.paidBy) missingPayerRows.push(i+1)
+
+  const problems = []
+  const toSave = []
+  bulkRows.forEach(function(r, i){
+    const amountStr = (r.amount===null || r.amount===undefined) ? '' : String(r.amount).trim()
+    if(amountStr === '') return // inget belopp ifyllt – orörd rad, hoppas över tyst
+    const amountNum = parseFloat(amountStr)
+    const missing = []
+    if(!(amountNum>0)) missing.push('ett giltigt belopp')
+    if(!r.desc.trim()) missing.push('beskrivning')
+    if(!r.paidBy) missing.push('betalare')
+    if(missing.length){
+      problems.push('Rad '+(i+1)+' saknar '+missing.join(', '))
+    } else {
+      toSave.push(r)
+    }
   })
-  if(missingPayerRows.length){
-    alert('Rad '+missingPayerRows.join(', ')+' saknar betalare. Välj en betalare för varje rad innan du sparar.')
+
+  if(problems.length){
+    alert('Kan inte spara – rätta följande:\n'+problems.join('\n'))
     return
   }
-  const rows = valid.map(function(r){ return {
+  if(!toSave.length){ alert('Fyll i minst en rad med belopp, beskrivning och betalare.'); return }
+
+  const rows = toSave.map(function(r){ return {
     period_id: period.id,
     klan_id: currentKlanId,
     description: r.desc.trim(),
     date: r.date,
     total_amount: parseFloat(r.amount)||0,
     alcohol_amount: r.type==='wine' ? (parseFloat(r.amount)||0) : 0,
-    paid_by_period_family_id: r.paidBy || null,
+    paid_by_period_family_id: r.paidBy,
   } })
   const res = await sb.from('receipts').insert(rows)
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
