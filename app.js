@@ -429,7 +429,7 @@ function renderPerioder(){
       </div>
       <div style="margin-top:8px">${famRows}</div>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}');showTab('report',document.querySelectorAll('.tab')[2])">Visa rapport</button>
+        <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}');showTab('report',document.querySelectorAll('.tab')[2])">Visa avräkning</button>
         <button class="btn btn-g btn-sm" onclick="unlockPeriod('${p.id}')">🔓 Lås upp</button>
         <button class="btn btn-p btn-sm" onclick="clearPeriod('${p.id}')">✅ Cleara (alla har swishat)</button>
       </div>
@@ -1051,7 +1051,7 @@ function renderReport(){
     </div>` }).join('')}
   </div>` : ''
 
-  return `<div class="sh"><span class="sh-title">Rapport – ${esc(period.name)}</span></div>${sumBar}${swishHtml}${famRows}`
+  return `<div class="sh"><span class="sh-title">Avräkning – ${esc(period.name)}</span></div>${sumBar}${swishHtml}${famRows}`
 }
 
 // ============================================================
