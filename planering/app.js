@@ -255,6 +255,27 @@ function distinctLabels(vfs){
   return labels.sort((a,b)=>b.localeCompare(a,'sv',{numeric:true})) // senaste först
 }
 
+// Lös koppling, ingen databas: redigera listan här om ni vill ändra vilka
+// standardperioder som föreslås vid "Kopiera in familj" / "Adhoc-familj".
+const STANDARD_PERIOD_NAMES = ['Påsk','Sommar','Jul','Nyår']
+
+function suggestedLabels(platsId){
+  const used = distinctLabels(state.vistelseFamilies.filter(vf=>vf.plats_id===platsId))
+  const y = new Date().getFullYear()
+  const generated = []
+  STANDARD_PERIOD_NAMES.forEach(name=>{ generated.push(`${name} ${y}`); generated.push(`${name} ${y+1}`) })
+  const combined = [...used, ...generated.filter(g=>!used.includes(g))]
+  return combined.slice(0,10)
+}
+
+function labelChips(inputId, platsId){
+  const chips = suggestedLabels(platsId)
+  if(!chips.length) return ''
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
+    ${chips.map(l=>`<button type="button" class="btn btn-g btn-sm" onclick="document.getElementById('${inputId}').value='${esc(l).replace(/'/g,"\\'")}'">${esc(l)}</button>`).join('')}
+  </div>`
+}
+
 // filtrerar vilka familjer som visas i diagram + familjelista, utan att röra underliggande data
 function periodFilteredVfs(vfs){
   if(calendarFilterMode==='all') return vfs
@@ -376,7 +397,6 @@ async function applyRenameLabel(platsId, oldLabel){
 
 // ── KOPIERA IN / ADHOC ────────────────────────────────────────────────────────
 function copyInFamilyModal(platsId){
-  const existingLabels = distinctLabels(state.vistelseFamilies.filter(vf=>vf.plats_id===platsId))
   const opts = state.templates.map(t=>`<div class="slim-row" style="cursor:pointer" onclick="copyInTemplate('${platsId}','${t.id}')">
     <div style="flex:1"><div class="slim-desc">${esc(t.name)}</div><div class="slim-sub">${templateMembersFor(t.id).length} person(er) i mallen</div></div>
     <div class="slim-actions"><button class="btn btn-p btn-sm">Kopiera in</button></div>
@@ -385,10 +405,10 @@ function copyInFamilyModal(platsId){
   <div class="modal">
     <div class="modal-title">Kopiera in familj – ${esc(platsName(platsId))}</div>
     <div class="fg"><label>Vistelseomgång</label>
-      <input id="cf-label" list="cf-label-list" placeholder="t.ex. Sommar 2026" value="${existingLabels[0]?esc(existingLabels[0]):''}"/>
-      <datalist id="cf-label-list">${existingLabels.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
+      <input id="cf-label" placeholder="t.ex. Sommar 2026"/>
+      ${labelChips('cf-label', platsId)}
     </div>
-    <div class="hint">Välj en befintlig omgång ur listan, eller skriv ett nytt namn. Lämna tomt så föreslår vi ett årtal automatiskt när du sätter dagar.</div>
+    <div class="hint">Klicka på ett förslag eller skriv eget. Lämna tomt så föreslår vi ett årtal automatiskt när du sätter dagar.</div>
     ${state.templates.length ? opts : '<p class="empty">Inga familjemallar finns ännu – skapa en i Hushållskostnader, eller lägg till en adhoc-familj här istället.</p>'}
     <div class="btn-row" style="margin-top:10px">
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
