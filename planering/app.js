@@ -285,7 +285,10 @@ function renderKalender(){
     : null
   const periodFilter = allVfs.length ? `<div class="btn-row" style="margin-bottom:8px;flex-wrap:wrap">
     <button class="btn ${calendarFilterMode==='all'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarFilter('all')">Alla</button>
-    ${labels.map(l=>`<button class="btn ${calendarFilterMode==='label:'+l?'btn-p':'btn-g'} btn-sm" onclick="setCalendarFilter('label:${esc(l)}')">${esc(l)}</button>`).join('')}
+    ${labels.map(l=>`<span style="display:inline-flex;align-items:center">
+      <button class="btn ${calendarFilterMode==='label:'+l?'btn-p':'btn-g'} btn-sm" style="border-radius:8px 0 0 8px" onclick="setCalendarFilter('label:${esc(l)}')">${esc(l)}</button>
+      <button class="btn ${calendarFilterMode==='label:'+l?'btn-p':'btn-g'} btn-sm" style="border-radius:0 8px 8px 0;border-left:1px solid rgba(255,255,255,.3);padding-left:6px;padding-right:8px" title="Döp om" onclick="event.stopPropagation(); renameLabelModal('${calendarPlatsId}','${esc(l).replace(/'/g,"\\'")}')">✏️</button>
+    </span>`).join('')}
     <button class="btn ${calendarFilterMode==='custom'?'btn-p':'btn-g'} btn-sm" onclick="openCustomPeriodModal()">📅 ${customText?esc(customText):'Anpassat intervall…'}</button>
   </div>` : ''
 
@@ -349,8 +352,31 @@ function applyCustomPeriod(){
   closeModal(); renderActive()
 }
 
+function renameLabelModal(platsId, oldLabel){
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Döp om vistelseomgång</div>
+    <div class="hint">Byter namn på "${esc(oldLabel)}" för alla familjer som just nu har den här etiketten på ${esc(platsName(platsId))}.</div>
+    <div class="fg"><label>Nytt namn</label><input id="rl-new" value="${esc(oldLabel)}" autofocus/></div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="applyRenameLabel('${platsId}','${esc(oldLabel).replace(/'/g,"\\'")}')">Spara</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+async function applyRenameLabel(platsId, oldLabel){
+  const newLabel = document.getElementById('rl-new').value.trim()
+  if(!newLabel){ alert('Ange ett namn.'); return }
+  const { error } = await sb.from('vistelse_families').update({label:newLabel}).eq('plats_id',platsId).eq('label',oldLabel)
+  if(error){ alert('Kunde inte döpa om: '+error.message); return }
+  if(calendarFilterMode==='label:'+oldLabel) calendarFilterMode = 'label:'+newLabel
+  closeModal(); await init()
+}
+
 // ── KOPIERA IN / ADHOC ────────────────────────────────────────────────────────
 function copyInFamilyModal(platsId){
+  const existingLabels = distinctLabels(state.vistelseFamilies.filter(vf=>vf.plats_id===platsId))
   const opts = state.templates.map(t=>`<div class="slim-row" style="cursor:pointer" onclick="copyInTemplate('${platsId}','${t.id}')">
     <div style="flex:1"><div class="slim-desc">${esc(t.name)}</div><div class="slim-sub">${templateMembersFor(t.id).length} person(er) i mallen</div></div>
     <div class="slim-actions"><button class="btn btn-p btn-sm">Kopiera in</button></div>
@@ -358,6 +384,11 @@ function copyInFamilyModal(platsId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Kopiera in familj – ${esc(platsName(platsId))}</div>
+    <div class="fg"><label>Vistelseomgång</label>
+      <input id="cf-label" list="cf-label-list" placeholder="t.ex. Sommar 2026" value="${existingLabels[0]?esc(existingLabels[0]):''}"/>
+      <datalist id="cf-label-list">${existingLabels.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
+    </div>
+    <div class="hint">Välj en befintlig omgång ur listan, eller skriv ett nytt namn. Lämna tomt så föreslår vi ett årtal automatiskt när du sätter dagar.</div>
     ${state.templates.length ? opts : '<p class="empty">Inga familjemallar finns ännu – skapa en i Hushållskostnader, eller lägg till en adhoc-familj här istället.</p>'}
     <div class="btn-row" style="margin-top:10px">
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
@@ -368,8 +399,10 @@ function copyInFamilyModal(platsId){
 async function copyInTemplate(platsId, templateId){
   const tpl = state.templates.find(t=>t.id===templateId)
   if(!tpl) return
+  const labelEl = document.getElementById('cf-label')
+  const label = labelEl ? labelEl.value.trim() || null : null
   const res = await sb.from('vistelse_families').insert({
-    klan_id: currentKlanId, plats_id: platsId, template_id: templateId, name: tpl.name, is_adhoc:false
+    klan_id: currentKlanId, plats_id: platsId, template_id: templateId, name: tpl.name, is_adhoc:false, label
   }).select().single()
   if(res.error){ alert('Kunde inte kopiera in familjen: '+res.error.message); return }
   const tmembers = templateMembersFor(templateId)
@@ -382,10 +415,15 @@ async function copyInTemplate(platsId, templateId){
 }
 
 function newAdhocFamilyModal(platsId){
+  const existingLabels = distinctLabels(state.vistelseFamilies.filter(vf=>vf.plats_id===platsId))
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Ny adhoc-familj – ${esc(platsName(platsId))}</div>
     <div class="fg"><label>Namn</label><input id="af-name" placeholder="t.ex. Vänner från Göteborg" autofocus/></div>
+    <div class="fg"><label>Vistelseomgång</label>
+      <input id="af-label" list="af-label-list" placeholder="t.ex. Sommar 2026" value="${existingLabels[0]?esc(existingLabels[0]):''}"/>
+      <datalist id="af-label-list">${existingLabels.map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
+    </div>
     <div class="btn-row">
       <button class="btn btn-p" onclick="saveAdhocFamily('${platsId}')">Skapa</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
@@ -396,7 +434,8 @@ function newAdhocFamilyModal(platsId){
 async function saveAdhocFamily(platsId){
   const name = document.getElementById('af-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  const { error } = await sb.from('vistelse_families').insert({ klan_id: currentKlanId, plats_id: platsId, template_id:null, name, is_adhoc:true })
+  const label = document.getElementById('af-label').value.trim() || null
+  const { error } = await sb.from('vistelse_families').insert({ klan_id: currentKlanId, plats_id: platsId, template_id:null, name, is_adhoc:true, label })
   if(error){ alert('Kunde inte skapa familjen: '+error.message); return }
   closeModal(); await init()
 }
