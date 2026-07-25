@@ -581,38 +581,63 @@ async function saveBulkDates(vfId){
   closeModal(); await init()
 }
 
-// ── DAGAR PER PERSON (lägg till/ta bort enstaka dagar eller intervall) ───────
+// ── DAGAR PER PERSON (klickbar kalendervy, en mini-månad per månad i perioden) ─
+function monthsSpanned(startDate, endDate){
+  const months = []
+  let y = parseInt(startDate.slice(0,4)), m = parseInt(startDate.slice(5,7))-1
+  const endY = parseInt(endDate.slice(0,4)), endM = parseInt(endDate.slice(5,7))-1
+  let guard = 0
+  while((y<endY || (y===endY && m<=endM)) && guard<60){
+    months.push([y,m]); guard++
+    m++; if(m>11){ m=0; y++ }
+  }
+  return months
+}
+
+const MONTH_NAMES_FULL = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
+
+function renderMonthGrid(year, month, periodStart, periodEnd, selectedSet, memberId){
+  const firstOfMonth = new Date(Date.UTC(year,month,1))
+  const daysInMonth = new Date(Date.UTC(year,month+1,0)).getUTCDate()
+  const firstWeekday = (firstOfMonth.getUTCDay()+6)%7 // 0=måndag
+  const cells = []
+  for(let i=0;i<firstWeekday;i++) cells.push(null)
+  for(let d=1; d<=daysInMonth; d++) cells.push(`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`)
+  while(cells.length%7!==0) cells.push(null)
+
+  const dayHeaders = ['Må','Ti','On','To','Fr','Lö','Sö']
+  const cellsHtml = cells.map(dateStr=>{
+    if(!dateStr) return `<div></div>`
+    const dayNum = parseInt(dateStr.slice(8,10))
+    const inRange = dateStr>=periodStart && dateStr<=periodEnd
+    if(!inRange) return `<div style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--border)">${dayNum}</div>`
+    const selected = selectedSet.has(dateStr)
+    return `<div onclick="toggleMemberDate('${memberId}','${dateStr}')" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:6px;cursor:pointer;user-select:none;${selected?'background:var(--accent);color:#fff;font-weight:700':'background:rgba(0,0,0,.045);color:var(--text)'}">${dayNum}</div>`
+  }).join('')
+
+  return `<div style="margin-bottom:12px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">${MONTH_NAMES_FULL[month]} ${year}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10px;color:var(--muted);margin-bottom:3px">${dayHeaders.map(h=>`<div style="text-align:center">${h}</div>`).join('')}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">${cellsHtml}</div>
+  </div>`
+}
+
 function openMemberDayEditor(memberId){
   const m = memberById(memberId)
   if(!m) return
   const vf = vfById(m.vistelse_family_id)
   const period = periodById(vf.period_id)
-  const dates = (m.day_states||[]).slice().sort()
-  const chips = dates.map(d=>`<span class="tag" style="display:inline-flex;align-items:center;gap:5px;margin:2px">
-      ${esc(fmtDateY(d))}
-      <button onclick="removeMemberDate('${memberId}','${d}')" style="border:none;background:none;cursor:pointer;color:var(--muted);font-weight:700;padding:0">✕</button>
-    </span>`).join('')
+  const selectedSet = new Set(m.day_states||[])
+  const monthsHtml = monthsSpanned(period.starts_at, period.ends_at)
+    .map(([y,mo])=>renderMonthGrid(y,mo,period.starts_at,period.ends_at,selectedSet,memberId)).join('')
+
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Dagar – ${esc(m.name)}</div>
-    <div class="hint">Perioden ${esc(period.name)} sträcker sig ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)} – dagar utanför det går inte att lägga till här.</div>
-    <div class="fg"><label>Nuvarande dagar (${dates.length})</label>
-      <div style="display:flex;flex-wrap:wrap;gap:2px">${chips || '<span class="card-sub">Inga dagar satta</span>'}</div>
-    </div>
-    <div class="fg"><label>Lägg till intervall</label>
-      <div class="fr">
-        <input type="date" id="md-range-start" min="${period.starts_at}" max="${period.ends_at}" value="${period.starts_at}" style="flex:1"/>
-        <input type="date" id="md-range-end" min="${period.starts_at}" max="${period.ends_at}" value="${period.ends_at}" style="flex:1"/>
-        <button class="btn btn-g btn-sm" onclick="addMemberDateRange('${memberId}')">Lägg till</button>
-      </div>
-    </div>
-    <div class="fg"><label>Lägg till enstaka dag</label>
-      <div class="fr">
-        <input type="date" id="md-single" min="${period.starts_at}" max="${period.ends_at}" value="${period.starts_at}" style="flex:1"/>
-        <button class="btn btn-g btn-sm" onclick="addMemberSingleDate('${memberId}')">Lägg till</button>
-      </div>
-    </div>
-    <div class="btn-row" style="margin-top:6px">
+    <div class="hint">${esc(period.name)}, ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}. Klicka på en dag för att slå på/av. ${selectedSet.size} dag${selectedSet.size===1?'':'ar'} valda.</div>
+    <div style="max-height:56vh;overflow-y:auto;padding-right:2px">${monthsHtml}</div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn btn-g btn-sm" onclick="markAllMemberDates('${memberId}')">Markera hela perioden</button>
       <button class="btn btn-d btn-sm" onclick="clearMemberDates('${memberId}')">Rensa alla dagar</button>
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
     </div>
@@ -626,32 +651,17 @@ async function saveMemberDates(memberId, newDates){
   return true
 }
 
-async function addMemberDateRange(memberId){
-  const start = document.getElementById('md-range-start').value
-  const end = document.getElementById('md-range-end').value
-  if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
-  if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
+async function toggleMemberDate(memberId, date){
   const m = memberById(memberId)
-  const period = periodById(vfById(m.vistelse_family_id).period_id)
-  if(start < period.starts_at || end > period.ends_at){ alert(`Datumen måste ligga inom perioden ${period.name}.`); return }
-  const merged = unionDates(m.day_states, datesBetween(start,end))
-  if(await saveMemberDates(memberId, merged)) openMemberDayEditor(memberId)
+  const has = (m.day_states||[]).includes(date)
+  const newDates = has ? m.day_states.filter(d=>d!==date) : unionDates(m.day_states,[date])
+  if(await saveMemberDates(memberId, newDates)) openMemberDayEditor(memberId)
 }
 
-async function addMemberSingleDate(memberId){
-  const d = document.getElementById('md-single').value
-  if(!d){ alert('Ange ett datum.'); return }
+async function markAllMemberDates(memberId){
   const m = memberById(memberId)
   const period = periodById(vfById(m.vistelse_family_id).period_id)
-  if(d < period.starts_at || d > period.ends_at){ alert(`Datumet måste ligga inom perioden ${period.name}.`); return }
-  const merged = unionDates(m.day_states, [d])
-  if(await saveMemberDates(memberId, merged)) openMemberDayEditor(memberId)
-}
-
-async function removeMemberDate(memberId, date){
-  const m = memberById(memberId)
-  const filtered = (m.day_states||[]).filter(d=>d!==date)
-  if(await saveMemberDates(memberId, filtered)) openMemberDayEditor(memberId)
+  if(await saveMemberDates(memberId, datesBetween(period.starts_at, period.ends_at))) openMemberDayEditor(memberId)
 }
 
 async function clearMemberDates(memberId){
