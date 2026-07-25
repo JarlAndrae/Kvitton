@@ -1212,17 +1212,17 @@ function renderBulk(el){
     <div class="btn-row">
       <button class="btn btn-g btn-sm" onclick="addBulkRow();renderBulk(document.getElementById('tab-bulk'))">+ Ny rad</button>
       <button class="btn btn-p" onclick="saveBulkRows()">Spara alla</button>
+      <button class="btn btn-g" onclick="cancelBulkRows()">Avbryt</button>
     </div>`
 }
 async function saveBulkRows(){
   const period = currentPeriod()
   if(!period){ alert('Välj en period.'); return }
+  if(!bulkRows.length){ alert('Lägg till minst en rad, eller tryck Avbryt.'); return }
 
   const problems = []
-  const toSave = []
   bulkRows.forEach(function(r, i){
     const amountStr = (r.amount===null || r.amount===undefined) ? '' : String(r.amount).trim()
-    if(amountStr === '') return // inget belopp ifyllt – orörd rad, hoppas över tyst
     const amountNum = parseFloat(amountStr)
     const missing = []
     if(!(amountNum>0)) missing.push('ett giltigt belopp')
@@ -1230,18 +1230,15 @@ async function saveBulkRows(){
     if(!r.paidBy) missing.push('betalare')
     if(missing.length){
       problems.push('Rad '+(i+1)+' saknar '+missing.join(', '))
-    } else {
-      toSave.push(r)
     }
   })
 
   if(problems.length){
-    alert('Kan inte spara – rätta följande:\n'+problems.join('\n'))
+    alert('Kan inte spara – rätta eller ta bort dessa rader:\n'+problems.join('\n'))
     return
   }
-  if(!toSave.length){ alert('Fyll i minst en rad med belopp, beskrivning och betalare.'); return }
 
-  const rows = toSave.map(function(r){ return {
+  const rows = bulkRows.map(function(r){ return {
     period_id: period.id,
     klan_id: currentKlanId,
     description: r.desc.trim(),
@@ -1255,6 +1252,10 @@ async function saveBulkRows(){
   bulkRows = []
   showTab('receipts', document.querySelectorAll('.tab')[0])
   await init()
+}
+function cancelBulkRows(){
+  bulkRows = []
+  showTab('receipts', document.querySelectorAll('.tab')[0])
 }
 
 // ============================================================
