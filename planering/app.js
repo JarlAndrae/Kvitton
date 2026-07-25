@@ -268,7 +268,7 @@ function renderKalender(){
     ? renderPersonTimelineChart(vfs)
     : calendarChartMode==='week'
     ? renderWeekGantt(vfs)
-    : renderOccupancyChart(computeDailyOccupancy(vfs))
+    : renderOccupancyChart(computeDailyOccupancy(vfs), vfs)
 
   const familyCards = vfs.map(vf => renderFamilyCard(vf)).join('')
 
@@ -546,7 +546,13 @@ async function clearMemberDates(memberId){
   if(await saveMemberDates(memberId, [])) openMemberDayEditor(memberId)
 }
 
-// ── DIAGRAM: DAGLIG BELÄGGNING (headcount per dag på stället) ────────────────
+// ── DIAGRAM: DAGLIG BELÄGGNING (headcount per dag på stället, staplat per familj) ─
+const FAMILY_COLORS = ['#7c5cbf','#e07a5f','#3d9970','#2a9d8f','#e9c46a','#4361ee','#f4a261','#9b5de5','#00b4d8','#ef476f','#588157','#c9184a']
+function familyColorFor(vfs, vfId){
+  const idx = vfs.findIndex(v=>v.id===vfId)
+  return FAMILY_COLORS[idx>=0 ? idx%FAMILY_COLORS.length : 0]
+}
+
 function computeDailyOccupancy(vfs){
   let allDates = []
   vfs.forEach(vf => { allDates = allDates.concat(familyDates(vf.id)) })
@@ -557,43 +563,66 @@ function computeDailyOccupancy(vfs){
   let cur = minDate, guard = 0
   while(cur <= maxDate && guard < 3660){
     guard++
-    let count = 0, familyCount = 0
-    vfs.forEach(vf=>{
-      const present = membersFor(vf.id).some(m=>(m.day_states||[]).includes(cur))
-      if(present){
-        familyCount++
-        count += membersFor(vf.id).filter(m=>(m.day_states||[]).includes(cur)).length
-      }
-    })
-    days.push({date:cur, count, familyCount})
+    const byFamily = vfs.map(vf=>{
+      const count = membersFor(vf.id).filter(m=>(m.day_states||[]).includes(cur)).length
+      return { vfId: vf.id, count }
+    }).filter(f=>f.count>0)
+    const count = byFamily.reduce((s,f)=>s+f.count,0)
+    days.push({date:cur, count, familyCount:byFamily.length, byFamily})
     cur = isoAdd(cur,1)
   }
   return days
 }
 
-function renderOccupancyChart(days){
+function renderOccupancyChart(days, vfs){
   if(!days.length) return '<p class="empty">Inga dagar inplanerade ännu.</p>'
   const maxCount = Math.max(...days.map(d=>d.count), 1)
-  const w = 700, h = 110, padBottom = 18
+  const w = 700, h = 130, padBottom = 18, padTop = 16
+  const usableH = h - padBottom - padTop
   const barW = w / days.length
+
   const weekMarks = days.map((d,i)=>{
-    if(dayOfWeekUTC(d.date)!==1) return ''
+    const isMonthStart = d.date.slice(8,10)==='01'
     const x = i*barW
+    if(isMonthStart){
+      return `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-padBottom}" stroke="var(--muted)" stroke-width="1.5"/>
+        <text x="${(x+3).toFixed(1)}" y="12" font-size="10" font-weight="700" fill="var(--text)">${monthShort(d.date)}</text>`
+    }
+    if(dayOfWeekUTC(d.date)!==1) return ''
     const wn = isoWeekNumber(d.date)
     return `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-padBottom}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
       <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${wn}</text>`
   }).join('')
+
   const bars = days.map((d,i)=>{
-    const barH = maxCount>0 ? (d.count/maxCount)*(h-padBottom-10) : 0
-    const x = i*barW, y = h-padBottom-barH
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(barW-1,1).toFixed(1)}" height="${barH.toFixed(1)}" fill="${d.familyCount>1?'var(--accent)':'var(--accent-light)'}" stroke="${d.familyCount>1?'var(--accent)':'none'}"/>`
+    const x = i*barW
+    let yOffset = h-padBottom
+    const segRects = d.byFamily.map(f=>{
+      const segH = maxCount>0 ? (f.count/maxCount)*usableH : 0
+      const y = yOffset - segH
+      yOffset = y
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(barW-1,1).toFixed(1)}" height="${segH.toFixed(1)}" fill="${familyColorFor(vfs,f.vfId)}"/>`
+    }).join('')
+    const labelY = yOffset - 3
+    const showLabel = d.count>0 && barW>9
+    const countLabel = showLabel ? `<text x="${(x+barW/2).toFixed(1)}" y="${labelY.toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--muted)">${d.count}</text>` : ''
+    return segRects + countLabel
   }).join('')
+
+  const legend = vfs.map((vf,i)=>{
+    if(!days.some(d=>d.byFamily.some(f=>f.vfId===vf.id))) return ''
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-right:10px">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${familyColorFor(vfs,vf.id)}"></span>${esc(vf.name)}
+    </span>`
+  }).join('')
+
   return `<div class="card" style="padding:12px 14px 8px;margin-bottom:12px;overflow-x:auto">
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">📊 Antal personer per dag (mörkare = flera familjer samtidigt)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">📊 Antal personer per dag, färgkodat per familj</div>
     <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:480px;height:${h}px;display:block">${weekMarks}${bars}</svg>
     <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px">
       <span>${esc(fmtDate(days[0].date))}</span><span>${esc(fmtDate(days[days.length-1].date))}</span>
     </div>
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap">${legend}</div>
   </div>`
 }
 
