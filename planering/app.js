@@ -540,40 +540,67 @@ async function delMember(memberId){
 }
 
 // "🙋 Sätt dagar för alla" – ersätter (inte adderar) valda medlemmars dagar med ett datumintervall
+// "🙋 Sätt dagar för alla" – samma klickbara kalender som för individer, fast
+// dagarna byggs upp i ett gemensamt arbetsset och tillämpas på valda personer vid spara.
+let bulkDatesSet = new Set()
+
 function bulkSetDatesModal(vfId){
   const vf = vfById(vfId)
   const period = periodById(vf.period_id)
   const members = membersFor(vfId)
+  // förslag på startläge: unionen av de dagar som redan är satta i familjen
+  bulkDatesSet = new Set(members.flatMap(m=>m.day_states||[]))
+
   const rows = members.map(m=>`<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:3px 0">
     <input type="checkbox" class="bulk-member" value="${m.id}" checked style="width:auto"/> ${esc(m.name)}
   </label>`).join('')
+  const monthsHtml = monthsSpanned(period.starts_at, period.ends_at)
+    .map(([y,mo])=>renderMonthGrid(y,mo,period.starts_at,period.ends_at,bulkDatesSet, d=>`toggleBulkDate(event,'${d}')`)).join('')
+
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-title">Sätt dagar för alla – ${esc(vfById(vfId)?.name||'')}</div>
-    <div class="hint">Detta ersätter de valda personernas nuvarande dagar med intervallet nedan (måste ligga inom perioden ${esc(period.name)}: ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}). Justera enskilda personer efteråt via deras egen "📅 Dagar"-knapp.</div>
-    <div class="fr">
-      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="bulk-start" min="${period.starts_at}" max="${period.ends_at}" value="${period.starts_at}"/></div>
-      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="bulk-end" min="${period.starts_at}" max="${period.ends_at}" value="${period.ends_at}"/></div>
-    </div>
+    <div class="modal-title">Sätt dagar för alla – ${esc(vf.name)}</div>
+    <div class="hint">${esc(period.name)}, ${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}. Klicka på en dag för att slå på/av. <span id="bulk-count">${bulkDatesSet.size}</span> dag${bulkDatesSet.size===1?'':'ar'} valda. Detta ersätter valda personers nuvarande dagar när du sparar.</div>
     <div class="fg"><label>Gäller personer</label>${rows || '<div class="card-sub">Inga personer att sätta dagar för – lägg till en person först.</div>'}</div>
-    <div class="btn-row">
-      <button class="btn btn-p" onclick="saveBulkDates('${vfId}')">Sätt dagar</button>
+    <div style="max-height:48vh;overflow-y:auto;padding-right:2px">${monthsHtml}</div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn btn-g btn-sm" onclick="markAllBulkDates('${vfId}')">Markera hela perioden</button>
+      <button class="btn btn-d btn-sm" onclick="clearBulkDates('${vfId}')">Rensa alla</button>
+    </div>
+    <div class="btn-row" style="margin-top:6px">
+      <button class="btn btn-p" onclick="saveBulkDates('${vfId}')">Spara dagar</button>
       <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
     </div>
   </div></div>`)
 }
 
+function toggleBulkDate(evt, date){
+  const el = evt.currentTarget
+  const had = bulkDatesSet.has(date)
+  if(had) bulkDatesSet.delete(date); else bulkDatesSet.add(date)
+  const nowSelected = !had
+  el.style.background = nowSelected ? 'var(--accent)' : 'rgba(0,0,0,.045)'
+  el.style.color = nowSelected ? '#fff' : 'var(--text)'
+  el.style.fontWeight = nowSelected ? '700' : '400'
+  const countEl = document.getElementById('bulk-count')
+  if(countEl) countEl.textContent = bulkDatesSet.size
+}
+
+function markAllBulkDates(vfId){
+  const period = periodById(vfById(vfId).period_id)
+  bulkDatesSet = new Set(datesBetween(period.starts_at, period.ends_at))
+  bulkSetDatesModal(vfId)
+}
+
+function clearBulkDates(vfId){
+  bulkDatesSet = new Set()
+  bulkSetDatesModal(vfId)
+}
+
 async function saveBulkDates(vfId){
-  const vf = vfById(vfId)
-  const period = periodById(vf.period_id)
-  const start = document.getElementById('bulk-start').value
-  const end = document.getElementById('bulk-end').value
-  if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
-  if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
-  if(start < period.starts_at || end > period.ends_at){ alert(`Datumen måste ligga inom perioden ${period.name} (${fmtDateY(period.starts_at)}–${fmtDateY(period.ends_at)}).`); return }
   const ids = Array.from(document.querySelectorAll('.bulk-member:checked')).map(el=>el.value)
   if(!ids.length){ alert('Välj minst en person.'); return }
-  const dates = datesBetween(start,end)
+  const dates = Array.from(bulkDatesSet).sort()
   for(const id of ids){
     const { error } = await sb.from('vistelse_members').update({day_states:dates}).eq('id',id)
     if(error){ alert('Kunde inte spara dagar för en av personerna: '+error.message); return }
@@ -596,7 +623,7 @@ function monthsSpanned(startDate, endDate){
 
 const MONTH_NAMES_FULL = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December']
 
-function renderMonthGrid(year, month, periodStart, periodEnd, selectedSet, memberId){
+function renderMonthGrid(year, month, periodStart, periodEnd, selectedSet, onClickFor){
   const firstOfMonth = new Date(Date.UTC(year,month,1))
   const daysInMonth = new Date(Date.UTC(year,month+1,0)).getUTCDate()
   const firstWeekday = (firstOfMonth.getUTCDay()+6)%7 // 0=måndag
@@ -613,7 +640,7 @@ function renderMonthGrid(year, month, periodStart, periodEnd, selectedSet, membe
     const inRange = dateStr>=periodStart && dateStr<=periodEnd
     if(!inRange) return `<div style="width:${cellSize};height:${cellSize};display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--border)">${dayNum}</div>`
     const selected = selectedSet.has(dateStr)
-    return `<div data-date="${dateStr}" onclick="toggleMemberDate(event,'${memberId}','${dateStr}')" style="width:${cellSize};height:${cellSize};display:flex;align-items:center;justify-content:center;font-size:11px;border-radius:6px;cursor:pointer;user-select:none;${selected?'background:var(--accent);color:#fff;font-weight:700':'background:rgba(0,0,0,.045);color:var(--text)'}">${dayNum}</div>`
+    return `<div data-date="${dateStr}" onclick="${onClickFor(dateStr)}" style="width:${cellSize};height:${cellSize};display:flex;align-items:center;justify-content:center;font-size:11px;border-radius:6px;cursor:pointer;user-select:none;${selected?'background:var(--accent);color:#fff;font-weight:700':'background:rgba(0,0,0,.045);color:var(--text)'}">${dayNum}</div>`
   }).join('')
 
   return `<div style="margin-bottom:12px">
@@ -630,7 +657,7 @@ function openMemberDayEditor(memberId){
   const period = periodById(vf.period_id)
   const selectedSet = new Set(m.day_states||[])
   const monthsHtml = monthsSpanned(period.starts_at, period.ends_at)
-    .map(([y,mo])=>renderMonthGrid(y,mo,period.starts_at,period.ends_at,selectedSet,memberId)).join('')
+    .map(([y,mo])=>renderMonthGrid(y,mo,period.starts_at,period.ends_at,selectedSet, d=>`toggleMemberDate(event,'${memberId}','${d}')`)).join('')
 
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
