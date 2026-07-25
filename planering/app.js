@@ -606,7 +606,7 @@ function renderTimelineChart(vfs){
   const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
   const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
   const totalDays = Math.max(1, Math.round((toUTCms(maxDate)-toUTCms(minDate))/86400000)+1)
-  const labelW = 130, w = 700, rowH = 26, padTop = 8
+  const labelW = 130, w = 700, rowH = 26, padTop = 20
   const chartW = w - labelW
   const pxPerDay = chartW/totalDays
   const h = padTop + rowsData.length*rowH + 20
@@ -620,7 +620,7 @@ function renderTimelineChart(vfs){
       const x = labelW + idx*pxPerDay
       if(isMonthStart){
         weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--muted)" stroke-width="1.5"/>
-          <text x="${(x+3).toFixed(1)}" y="10" font-size="10" font-weight="700" fill="var(--text)">${monthShort(cur)}</text>`
+          <text x="${(x+3).toFixed(1)}" y="13" font-size="10" font-weight="700" fill="var(--text)">${monthShort(cur)}</text>`
       } else {
         weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
           <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${isoWeekNumber(cur)}</text>`
@@ -669,7 +669,7 @@ function renderPersonTimelineChart(vfs){
   const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
   const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
   const totalDays = Math.max(1, Math.round((toUTCms(maxDate)-toUTCms(minDate))/86400000)+1)
-  const labelW = 150, w = 700, rowH = 22, padTop = 8
+  const labelW = 150, w = 700, rowH = 22, padTop = 20
   const chartW = w - labelW
   const pxPerDay = chartW/totalDays
   const h = padTop + rowsData.length*rowH + 20
@@ -683,7 +683,7 @@ function renderPersonTimelineChart(vfs){
       const x = labelW + idx*pxPerDay
       if(isMonthStart){
         weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--muted)" stroke-width="1.5"/>
-          <text x="${(x+3).toFixed(1)}" y="10" font-size="10" font-weight="700" fill="var(--text)">${monthShort(cur)}</text>`
+          <text x="${(x+3).toFixed(1)}" y="13" font-size="10" font-weight="700" fill="var(--text)">${monthShort(cur)}</text>`
       } else {
         weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
           <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${isoWeekNumber(cur)}</text>`
