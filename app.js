@@ -1,4 +1,3 @@
-
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
 let state = { templates:[], templateMembers:[], periods:[], periodFamilies:[], periodMembers:[], receipts:[], platser:[] }
@@ -1168,7 +1167,10 @@ async function delReceipt(id){
 let bulkRows = []
 let bulkNextId = 1
 function addBulkRow(){
-  bulkRows.push({id:bulkNextId++, desc:'', date:today(), amount:'', type:'food', paidBy:''})
+  const last = bulkRows[bulkRows.length-1]
+  const defaultPaidBy = last ? last.paidBy : (receiptFilter || '')
+  const type = last ? last.type : 'food'
+  bulkRows.push({id:bulkNextId++, desc: type==='wine'?'Vinkvitto':'Matkvitto', date:today(), amount:'', type:type, paidBy:defaultPaidBy})
 }
 function renderBulk(el){
   const period = currentPeriod()
@@ -1194,7 +1196,7 @@ function renderBulk(el){
       <input type="number" placeholder="Belopp" value="${row.amount}" oninput="bulkRows[${i}].amount=this.value" step="0.01" style="flex:1"/>
     </div>
     <div class="fr" style="align-items:center">
-      <select onchange="bulkRows[${i}].type=this.value" style="flex:1">
+      <select onchange="bulkRows[${i}].type=this.value; bulkRows[${i}].desc=this.value==='wine'?'Vinkvitto':'Matkvitto'; renderBulk(document.getElementById('tab-bulk'))" style="flex:1">
         <option value="food" ${row.type==='food'?'selected':''}>🥗 Mat</option>
         <option value="wine" ${row.type==='wine'?'selected':''}>🍷 Vin</option>
       </select>
@@ -1217,6 +1219,14 @@ async function saveBulkRows(){
   if(!period){ alert('Välj en period.'); return }
   const valid = bulkRows.filter(function(r){ return r.desc.trim() && parseFloat(r.amount)>0 })
   if(!valid.length){ alert('Fyll i minst en rad med beskrivning och belopp.'); return }
+  const missingPayerRows = []
+  bulkRows.forEach(function(r,i){
+    if(r.desc.trim() && parseFloat(r.amount)>0 && !r.paidBy) missingPayerRows.push(i+1)
+  })
+  if(missingPayerRows.length){
+    alert('Rad '+missingPayerRows.join(', ')+' saknar betalare. Välj en betalare för varje rad innan du sparar.')
+    return
+  }
   const rows = valid.map(function(r){ return {
     period_id: period.id,
     klan_id: currentKlanId,
