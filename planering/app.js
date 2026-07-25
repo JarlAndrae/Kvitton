@@ -136,6 +136,7 @@ function isoWeekNumber(dateStr){
   return 1 + Math.round((date-firstThursday)/(7*24*3600*1000))
 }
 function today(){ return new Date().toISOString().slice(0,10) }
+function monthShort(dateStr){ const months=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec']; const d=new Date(toUTCms(dateStr)); return months[d.getUTCMonth()] }
 function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
 function isoWeekStart(dateStr){ const dow=dayOfWeekUTC(dateStr); const diff = dow===0 ? -6 : (1-dow); return isoAdd(dateStr, diff) }
 function getWeekDates(anchorDate){ const monday=isoWeekStart(anchorDate); const dates=[]; for(let i=0;i<7;i++) dates.push(isoAdd(monday,i)); return dates }
@@ -614,11 +615,16 @@ function renderTimelineChart(vfs){
   let cur = minDate, idx = 0, guard = 0
   while(cur <= maxDate && guard < 3660){
     guard++
-    if(dayOfWeekUTC(cur)===1){
+    const isMonthStart = cur.slice(8,10)==='01'
+    if(dayOfWeekUTC(cur)===1 || isMonthStart){
       const x = labelW + idx*pxPerDay
-      const wn = isoWeekNumber(cur)
-      weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
-        <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${wn}</text>`
+      if(isMonthStart){
+        weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--muted)" stroke-width="1.5"/>
+          <text x="${(x+3).toFixed(1)}" y="10" font-size="10" font-weight="700" fill="var(--text)">${monthShort(cur)}</text>`
+      } else {
+        weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+          <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${isoWeekNumber(cur)}</text>`
+      }
     }
     cur = isoAdd(cur,1); idx++
   }
@@ -672,11 +678,16 @@ function renderPersonTimelineChart(vfs){
   let cur = minDate, idx = 0, guard = 0
   while(cur <= maxDate && guard < 3660){
     guard++
-    if(dayOfWeekUTC(cur)===1){
+    const isMonthStart = cur.slice(8,10)==='01'
+    if(dayOfWeekUTC(cur)===1 || isMonthStart){
       const x = labelW + idx*pxPerDay
-      const wn = isoWeekNumber(cur)
-      weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
-        <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${wn}</text>`
+      if(isMonthStart){
+        weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--muted)" stroke-width="1.5"/>
+          <text x="${(x+3).toFixed(1)}" y="10" font-size="10" font-weight="700" fill="var(--text)">${monthShort(cur)}</text>`
+      } else {
+        weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+          <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${isoWeekNumber(cur)}</text>`
+      }
     }
     cur = isoAdd(cur,1); idx++
   }
