@@ -258,10 +258,13 @@ function renderKalender(){
   const chartToggle = `<div class="btn-row" style="margin-bottom:8px">
     <button class="btn ${calendarChartMode==='bar'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('bar')">📊 Diagram</button>
     <button class="btn ${calendarChartMode==='timeline'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('timeline')">📅 Tidslinje</button>
+    <button class="btn ${calendarChartMode==='people'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('people')">👤 Personer</button>
     <button class="btn ${calendarChartMode==='week'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('week')">🔎 Vecka</button>
   </div>`
   const chartHtml = calendarChartMode==='timeline'
     ? renderTimelineChart(vfs)
+    : calendarChartMode==='people'
+    ? renderPersonTimelineChart(vfs)
     : calendarChartMode==='week'
     ? renderWeekGantt(vfs)
     : renderOccupancyChart(computeDailyOccupancy(vfs))
@@ -635,6 +638,75 @@ function renderTimelineChart(vfs){
   return `<div class="card" style="padding:12px 14px 8px;margin-bottom:12px;overflow-x:auto">
     <div style="font-size:12px;color:var(--muted);margin-bottom:6px">📅 Tidslinje per familj</div>
     <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:480px;height:${h}px;display:block">${weekMarks}${rows}</svg>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px;padding-left:${labelW}px">
+      <span>${esc(fmtDate(minDate))}</span><span>${esc(fmtDate(maxDate))}</span>
+    </div>
+  </div>`
+}
+
+// ── DIAGRAM: TIDSLINJE PER PERSON (inzoomad, grupperad per familj) ───────────
+function renderPersonTimelineChart(vfs){
+  const rowsData = []
+  vfs.forEach(vf=>{
+    membersFor(vf.id).forEach(m=>{
+      const segments = toSegments((m.day_states||[]).slice().sort())
+      if(segments.length) rowsData.push({ vf, m, segments })
+    })
+  })
+  if(!rowsData.length) return '<p class="empty">Inga dagar inplanerade ännu.</p>'
+
+  let allDates = []
+  rowsData.forEach(r => r.segments.forEach(s => { allDates.push(s.start); allDates.push(s.end) }))
+  const minDate = allDates.reduce((m,d)=>d<m?d:m, allDates[0])
+  const maxDate = allDates.reduce((m,d)=>d>m?d:m, allDates[0])
+  const totalDays = Math.max(1, Math.round((toUTCms(maxDate)-toUTCms(minDate))/86400000)+1)
+  const labelW = 150, w = 700, rowH = 24, padTop = 8
+  const chartW = w - labelW
+  const pxPerDay = chartW/totalDays
+  const h = padTop + rowsData.length*rowH + 20
+
+  let weekMarks = ''
+  let cur = minDate, idx = 0, guard = 0
+  while(cur <= maxDate && guard < 3660){
+    guard++
+    if(dayOfWeekUTC(cur)===1){
+      const x = labelW + idx*pxPerDay
+      const wn = isoWeekNumber(cur)
+      weekMarks += `<line x1="${x.toFixed(1)}" y1="0" x2="${x.toFixed(1)}" y2="${h-16}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+        <text x="${(x+2).toFixed(1)}" y="${h-4}" font-size="9" fill="var(--muted)">v.${wn}</text>`
+    }
+    cur = isoAdd(cur,1); idx++
+  }
+
+  // gruppmarkeringar: en tunn linje mellan varje familjs sista rad och nästa familjs första
+  let groupLines = ''
+  for(let i=1;i<rowsData.length;i++){
+    if(rowsData[i].vf.id !== rowsData[i-1].vf.id){
+      const y = padTop + i*rowH
+      groupLines += `<line x1="0" y1="${y.toFixed(1)}" x2="${w}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
+    }
+  }
+
+  const rows = rowsData.map((r,ri)=>{
+    const y = padTop + ri*rowH
+    const isFirstOfGroup = ri===0 || rowsData[ri-1].vf.id !== r.vf.id
+    const fullLabel = isFirstOfGroup ? `${r.vf.name} · ${r.m.name}` : r.m.name
+    const shortLabel = fullLabel.length>20 ? fullLabel.slice(0,19)+'…' : fullLabel
+    const guestMark = r.m.is_guest ? ' 👤' : ''
+    const label = `<text x="0" y="${(y+rowH/2+4).toFixed(1)}" font-size="${isFirstOfGroup?'10':'11'}" font-weight="${isFirstOfGroup?'600':'400'}" fill="var(--text)">${esc(shortLabel+guestMark)}</text>`
+    const bars = r.segments.map(s=>{
+      const x1 = labelW + Math.round((toUTCms(s.start)-toUTCms(minDate))/86400000)*pxPerDay
+      const segDays = Math.round((toUTCms(s.end)-toUTCms(s.start))/86400000)+1
+      const bw = Math.max(segDays*pxPerDay-1,2)
+      const fill = r.m.is_guest ? 'var(--border)' : 'var(--accent-light)'
+      return `<rect x="${x1.toFixed(1)}" y="${(y+3).toFixed(1)}" width="${bw.toFixed(1)}" height="${(rowH-8).toFixed(1)}" rx="3" fill="${fill}" stroke="var(--accent)"/>`
+    }).join('')
+    return label+bars
+  }).join('')
+
+  return `<div class="card" style="padding:12px 14px 8px;margin-bottom:12px;overflow-x:auto">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">👤 Tidslinje per person (grupperad per familj, 👤 = gäst)</div>
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;min-width:480px;height:${h}px;display:block">${weekMarks}${groupLines}${rows}</svg>
     <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px;padding-left:${labelW}px">
       <span>${esc(fmtDate(minDate))}</span><span>${esc(fmtDate(maxDate))}</span>
     </div>
