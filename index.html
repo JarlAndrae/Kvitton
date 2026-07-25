@@ -18,16 +18,15 @@
   <header class="hdr">
     <h1>Kvittodelning</h1>
     <div class="hdr-right">
-      <span class="klan-pill" id="klanPill" onclick="showTab('klan', document.querySelectorAll('.tab')[6])">–</span>
+      <span class="klan-pill" id="klanPill" onclick="showTab('klan', document.querySelectorAll('.tab')[5])">–</span>
       <select class="period-sel" id="periodSel" onchange="onPeriodChange(this.value)">
         <option value="">– välj period –</option>
       </select>
-      <button class="klan-pill" id="createPeriodBtn" style="display:none" onclick="showTab('periods', document.querySelectorAll('.tab')[4])">+ Skapa period</button>
+      <button class="klan-pill" id="createPeriodBtn" style="display:none" onclick="showTab('periods', document.querySelectorAll('.tab')[3])">+ Skapa period</button>
     </div>
   </header>
   <nav class="tabs">
     <button class="tab on" onclick="showTab('receipts',this)">🧾 Kvitton</button>
-    <button class="tab" onclick="showTab('bulk',this)">➕ Flera</button>
     <button class="tab" onclick="showTab('report',this)">📊 Avräkning</button>
     <button class="tab" onclick="showTab('templates',this)">👨‍👩‍👧 Mallar</button>
     <button class="tab" onclick="showTab('periods',this)">📅 Perioder</button>
