@@ -5,6 +5,9 @@ let activeTab = 'platser'
 let calendarPlatsId = null
 let calendarChartMode = 'timeline'
 let weekAnchorDate = null
+let calendarFilterMode = 'all' // 'all' | 'label:<label>' | 'custom'
+let calendarCustomStart = null
+let calendarCustomEnd = null
 let currentKlanId = null
 let currentKlanName = ''
 
@@ -243,8 +246,27 @@ async function delPlats(id){
 }
 
 // ── KALENDER / VISTELSEFAMILJER ───────────────────────────────────────────────
-function setCalendarPlats(id){ calendarPlatsId = id; weekAnchorDate = null; renderActive() }
+function setCalendarPlats(id){ calendarPlatsId = id; weekAnchorDate = null; calendarFilterMode = 'all'; calendarCustomStart = null; calendarCustomEnd = null; renderActive() }
 function setCalendarChartMode(mode){ calendarChartMode = mode; renderActive() }
+function setCalendarFilter(mode){ calendarFilterMode = mode; if(mode!=='custom'){ calendarCustomStart=null; calendarCustomEnd=null } weekAnchorDate = null; renderActive() }
+
+function distinctLabels(vfs){
+  const labels = Array.from(new Set(vfs.map(vf=>vf.label).filter(Boolean)))
+  return labels.sort((a,b)=>b.localeCompare(a,'sv',{numeric:true})) // senaste först
+}
+
+// filtrerar vilka familjer som visas i diagram + familjelista, utan att röra underliggande data
+function periodFilteredVfs(vfs){
+  if(calendarFilterMode==='all') return vfs
+  if(calendarFilterMode.startsWith('label:')){
+    const label = calendarFilterMode.slice(6)
+    return vfs.filter(vf=>vf.label===label)
+  }
+  if(calendarFilterMode==='custom' && calendarCustomStart && calendarCustomEnd){
+    return vfs.filter(vf=>familyDates(vf.id).some(d=>d>=calendarCustomStart && d<=calendarCustomEnd))
+  }
+  return vfs
+}
 
 function renderKalender(){
   if(!state.platser.length){
@@ -254,7 +276,18 @@ function renderKalender(){
     calendarPlatsId = state.platser[0].id
   }
   const platsOpts = state.platser.map(pl=>`<option value="${pl.id}" ${pl.id===calendarPlatsId?'selected':''}>${pl.recurring?'🔁 ':''}${esc(pl.name)}</option>`).join('')
-  const vfs = state.vistelseFamilies.filter(vf=>vf.plats_id===calendarPlatsId)
+  const allVfs = state.vistelseFamilies.filter(vf=>vf.plats_id===calendarPlatsId)
+  const vfs = periodFilteredVfs(allVfs)
+
+  const labels = distinctLabels(allVfs)
+  const customText = calendarFilterMode==='custom' && calendarCustomStart && calendarCustomEnd
+    ? `${fmtDateY(calendarCustomStart)} – ${fmtDateY(calendarCustomEnd)}`
+    : null
+  const periodFilter = allVfs.length ? `<div class="btn-row" style="margin-bottom:8px;flex-wrap:wrap">
+    <button class="btn ${calendarFilterMode==='all'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarFilter('all')">Alla</button>
+    ${labels.map(l=>`<button class="btn ${calendarFilterMode==='label:'+l?'btn-p':'btn-g'} btn-sm" onclick="setCalendarFilter('label:${esc(l)}')">${esc(l)}</button>`).join('')}
+    <button class="btn ${calendarFilterMode==='custom'?'btn-p':'btn-g'} btn-sm" onclick="openCustomPeriodModal()">📅 ${customText?esc(customText):'Anpassat intervall…'}</button>
+  </div>` : ''
 
   const chartToggle = `<div class="btn-row" style="margin-bottom:8px">
     <button class="btn ${calendarChartMode==='bar'?'btn-p':'btn-g'} btn-sm" onclick="setCalendarChartMode('bar')">📊 Diagram</button>
@@ -271,6 +304,10 @@ function renderKalender(){
     : renderOccupancyChart(computeDailyOccupancy(vfs), vfs)
 
   const familyCards = vfs.map(vf => renderFamilyCard(vf)).join('')
+  const filterActive = calendarFilterMode!=='all'
+  const emptyFilteredMsg = filterActive
+    ? '<p class="empty">Inga familjer i den valda perioden. Välj "Alla" eller en annan period ovan.</p>'
+    : '<p class="empty">Inga familjer inkopierade för det här stället ännu.</p>'
 
   return `<div class="sh"><span class="sh-title">Kalender</span>
       <div class="btn-row">
@@ -280,10 +317,36 @@ function renderKalender(){
     </div>
     <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
     <div class="hint">Vistelseplanering är helt separat från avräkning och mandagar i Hushållskostnader. Kopiera in en familj för att börja planera vilka dagar var och en är i ${esc(platsName(calendarPlatsId))}.</div>
+    ${periodFilter}
     ${chartToggle}
     ${vfs.length ? chartHtml : ''}
-    <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Familjer</span></div>
-    ${vfs.length ? familyCards : '<p class="empty">Inga familjer inkopierade för det här stället ännu.</p>'}`
+    <div class="sh" style="margin-top:14px"><span class="sh-title" style="font-size:14px">Familjer${filterActive?' <span class="tag">filtrerat</span>':''}</span></div>
+    ${vfs.length ? familyCards : emptyFilteredMsg}`
+}
+
+function openCustomPeriodModal(){
+  openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-title">Anpassat intervall</div>
+    <div class="fr">
+      <div class="fg" style="flex:1"><label>Från</label><input type="date" id="cp-start" value="${calendarCustomStart||today()}"/></div>
+      <div class="fg" style="flex:1"><label>Till</label><input type="date" id="cp-end" value="${calendarCustomEnd||today()}"/></div>
+    </div>
+    <div class="hint">Visar familjer som har minst en dag inom intervallet.</div>
+    <div class="btn-row">
+      <button class="btn btn-p" onclick="applyCustomPeriod()">Visa</button>
+      <button class="btn btn-g" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div></div>`)
+}
+
+function applyCustomPeriod(){
+  const start = document.getElementById('cp-start').value
+  const end = document.getElementById('cp-end').value
+  if(!start || !end){ alert('Ange både från- och tilldatum.'); return }
+  if(end < start){ alert('Slutdatum kan inte vara före startdatum.'); return }
+  calendarFilterMode = 'custom'; calendarCustomStart = start; calendarCustomEnd = end; weekAnchorDate = null
+  closeModal(); renderActive()
 }
 
 // ── KOPIERA IN / ADHOC ────────────────────────────────────────────────────────
