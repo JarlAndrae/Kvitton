@@ -1189,18 +1189,20 @@ function renderBulk(el){
 
   const rowsHtml = bulkRows.map(function(row,i){
     const thisFamOpts = famOpts.replace('value="'+row.paidBy+'"', 'value="'+row.paidBy+'" selected')
-    return `<div class="card" style="margin-bottom:8px">
-    <div class="fg"><input placeholder="Beskrivning" value="${esc(row.desc)}" oninput="bulkRows[${i}].desc=this.value"/></div>
-    <div class="fr">
-      <input type="date" value="${row.date}" oninput="bulkRows[${i}].date=this.value" style="flex:1"/>
+    return `<div class="card" style="margin-bottom:10px">
+    <div class="fg" style="margin-bottom:9px"><select onchange="bulkRows[${i}].paidBy=this.value">${thisFamOpts}</select></div>
+    <div class="fr" style="margin-bottom:9px">
       <input type="number" placeholder="Belopp" value="${row.amount}" oninput="bulkRows[${i}].amount=this.value" step="0.01" style="flex:1"/>
+      <input type="date" value="${row.date}" oninput="bulkRows[${i}].date=this.value" style="flex:0 0 128px"/>
+    </div>
+    <div class="fr" style="margin-bottom:9px">
+      <div class="bulk-type">
+        <button type="button" class="${row.type==='food'?'on':''}" onclick="bulkRows[${i}].type='food';bulkRows[${i}].desc='Matkvitto';renderBulk(document.getElementById('tab-bulk'))">🥗 Mat</button>
+        <button type="button" class="${row.type==='wine'?'on':''}" onclick="bulkRows[${i}].type='wine';bulkRows[${i}].desc='Vinkvitto';renderBulk(document.getElementById('tab-bulk'))">🍷 Vin</button>
+      </div>
     </div>
     <div class="fr" style="align-items:center">
-      <select onchange="bulkRows[${i}].type=this.value; bulkRows[${i}].desc=this.value==='wine'?'Vinkvitto':'Matkvitto'; renderBulk(document.getElementById('tab-bulk'))" style="flex:1">
-        <option value="food" ${row.type==='food'?'selected':''}>🥗 Mat</option>
-        <option value="wine" ${row.type==='wine'?'selected':''}>🍷 Vin</option>
-      </select>
-      <select onchange="bulkRows[${i}].paidBy=this.value" style="flex:1">${thisFamOpts}</select>
+      <input placeholder="Beskrivning" value="${esc(row.desc)}" oninput="bulkRows[${i}].desc=this.value" style="flex:1"/>
       <button class="btn btn-d btn-sm" onclick="bulkRows.splice(${i},1);renderBulk(document.getElementById('tab-bulk'))">✕</button>
     </div>
   </div>`
