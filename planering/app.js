@@ -6,6 +6,7 @@ let calendarPlatsId = null
 let calendarPeriodId = null
 let calendarChartMode = 'timeline'
 let weekAnchorDate = null
+let expandedFamilies = new Set() // vistelse_family-id:n som är expanderade – tomt = allt hopfällt
 let currentKlanId = null
 let currentKlanName = ''
 
@@ -478,10 +479,30 @@ async function updateVistelseFamilyName(vfId, name){
 }
 
 // ── FAMILJEKORT ───────────────────────────────────────────────────────────────
+function toggleFamilyCard(vfId){
+  if(expandedFamilies.has(vfId)) expandedFamilies.delete(vfId)
+  else expandedFamilies.add(vfId)
+  renderActive()
+}
+
 function renderFamilyCard(vf, period){
   const members = membersFor(vf.id)
   const dates = familyDates(vf.id)
   const rangeLabel = dates.length ? `${fmtDateY(dates[0])} – ${fmtDateY(dates[dates.length-1])}` : 'Inga dagar satta ännu'
+  const summary = `${members.length} person${members.length===1?'':'er'} · ${dates.length} dag${dates.length===1?'':'ar'}`
+  const expanded = expandedFamilies.has(vf.id)
+
+  if(!expanded){
+    return `<div class="card" style="margin-bottom:8px;cursor:pointer" onclick="toggleFamilyCard('${vf.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:15px">${esc(vf.name)}</div>
+          <div class="card-sub">${esc(summary)}</div>
+        </div>
+        <span style="font-size:16px;color:var(--muted);flex-shrink:0">▸</span>
+      </div>
+    </div>`
+  }
 
   const memberRows = members.map(m=>{
     const cnt = (m.day_states||[]).length
@@ -499,16 +520,17 @@ function renderFamilyCard(vf, period){
   }).join('')
 
   return `<div class="card" style="margin-bottom:10px">
-    <div class="card-hdr">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div style="flex:1;min-width:0">
         <input value="${esc(vf.name)}" onchange="updateVistelseFamilyName('${vf.id}',this.value)" style="font-weight:600;font-size:15px;border:none;background:transparent;padding:2px 0;width:100%" />
-        <div class="card-sub">${esc(rangeLabel)}</div>
+        <div class="card-sub">${esc(summary)} · ${esc(rangeLabel)}</div>
       </div>
-      <div class="btn-row" style="flex-direction:column;align-items:flex-end">
-        <button class="btn btn-g btn-sm" onclick="addPersonModal('${vf.id}')">+ Person</button>
-        <button class="btn btn-g btn-sm" onclick="bulkSetDatesModal('${vf.id}')">🙋 Sätt dagar för alla</button>
-        <button class="btn btn-d btn-sm" onclick="delVistelseFamily('${vf.id}')">Ta bort familj</button>
-      </div>
+      <button onclick="toggleFamilyCard('${vf.id}')" style="border:none;background:none;font-size:16px;color:var(--muted);cursor:pointer;padding:4px;flex-shrink:0" title="Fäll ihop">▾</button>
+    </div>
+    <div class="btn-row" style="flex-wrap:wrap;margin:10px 0">
+      <button class="btn btn-g btn-sm" onclick="addPersonModal('${vf.id}')">+ Person</button>
+      <button class="btn btn-g btn-sm" onclick="bulkSetDatesModal('${vf.id}')">🙋 Sätt dagar för alla</button>
+      <button class="btn btn-d btn-sm" onclick="delVistelseFamily('${vf.id}')">Ta bort familj</button>
     </div>
     ${memberRows || '<p class="empty" style="margin-top:6px">Inga personer än.</p>'}
   </div>`
