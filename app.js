@@ -67,6 +67,59 @@ function statusLabel(status){
   return map[status] || status
 }
 
+// ── GÄST/FAKTOR-SAMMANFATTNING (diskret info om familjesammansättning) ──────
+function isDeviatingMember(m){
+  const fm = parseFloat(m.factor_mat)
+  const fv = parseFloat(m.factor_vin)
+  return (!isNaN(fm) && fm!==1) || (!isNaN(fv) && fv>0 && fv!==1)
+}
+function familyExtrasTag(members){
+  const guests = members.filter(function(m){ return m.is_guest })
+  const deviating = members.filter(isDeviatingMember)
+  let extra = ''
+  if(guests.length) extra += ' · '+guests.length+' gäst'+(guests.length>1?'er':'')
+  if(deviating.length) extra += ' · ⚠️faktor'
+  return extra
+}
+function familyExtrasTitle(members, dates){
+  const guests = members.filter(function(m){ return m.is_guest })
+  const deviating = members.filter(isDeviatingMember)
+  const parts = []
+  if(guests.length){
+    parts.push('Gäster: '+guests.map(function(g){ return g.name+' ('+fmt(memberDays(g,dates),1)+' dagar)' }).join(', '))
+  }
+  if(deviating.length){
+    parts.push('Avvikande faktor: '+deviating.map(function(d){
+      const bits = []
+      const fm = parseFloat(d.factor_mat)
+      const fv = parseFloat(d.factor_vin)
+      if(!isNaN(fm) && fm!==1) bits.push('mat ×'+fmt(fm,2))
+      if(!isNaN(fv) && fv>0 && fv!==1) bits.push('vin ×'+fmt(fv,2))
+      return d.name+' ('+bits.join(', ')+')'
+    }).join('; '))
+  }
+  return parts.join(' · ')
+}
+function familyCompositionLine(members, dates){
+  const guests = members.filter(function(m){ return m.is_guest })
+  const deviating = members.filter(isDeviatingMember)
+  if(!guests.length && !deviating.length) return ''
+  const bits = []
+  if(guests.length){
+    bits.push('👤 '+guests.length+' gäst'+(guests.length>1?'er':'')+' ('+guests.map(function(g){ return g.name+' '+fmt(memberDays(g,dates),1)+'d' }).join(', ')+')')
+  }
+  if(deviating.length){
+    bits.push('⚠️ '+deviating.map(function(d){
+      const parts=[]
+      const fm=parseFloat(d.factor_mat), fv=parseFloat(d.factor_vin)
+      if(!isNaN(fm)&&fm!==1) parts.push('mat ×'+fmt(fm,2))
+      if(!isNaN(fv)&&fv>0&&fv!==1) parts.push('vin ×'+fmt(fv,2))
+      return d.name+' '+parts.join(', ')
+    }).join(', '))
+  }
+  return '<div class="card-sub" style="font-size:11px;margin-top:2px">'+bits.join(' · ')+'</div>'
+}
+
 // KLAN-INLOGGNING
 function boot(){
   const savedId = localStorage.getItem('kvitton_klan_id')
@@ -414,7 +467,11 @@ function renderPerioder(){
 
   const lastCard = lastPeriods.map(function(p){
     const rep = computeReport(p.id)
-    const famRows = rep.perFamily.map(function(f){ return '<div class="rep-row"><span>'+esc(f.name)+'</span><span>'+fmt(f.balance,0)+' kr</span></div>' }).join('')
+    const famRows = rep.perFamily.map(function(f){
+      const members = rep.members.filter(function(m){ return m.familyId===f.id })
+      const compLine = familyCompositionLine(members, rep.dates)
+      return '<div style="margin-bottom:4px"><div class="rep-row"><span>'+esc(f.name)+'</span><span>'+fmt(f.balance,0)+' kr</span></div>'+compLine+'</div>'
+    }).join('')
     return `<div class="card" style="border:2px solid var(--gold, #c9a227)">
       <div class="card-hdr">
         <div>
@@ -442,7 +499,9 @@ function renderPerioder(){
     const tags = pfs.map(function(pf){
       const members = periodMembersFor(pf.id)
       const totDays = members.reduce(function(s,m){ return s+memberDays(m,dates) },0)
-      return '<span class="tag tag-clickable" onclick="openPeriodFamiliesModal(\''+p.id+'\',\''+pf.id+'\')">'+esc(pf.name)+': '+members.length+' pers · '+fmt(totDays,1)+'d ✏️</span>'
+      const extra = familyExtrasTag(members)
+      const titleAttr = familyExtrasTitle(members, dates)
+      return '<span class="tag tag-clickable" title="'+esc(titleAttr)+'" onclick="openPeriodFamiliesModal(\''+p.id+'\',\''+pf.id+'\')">'+esc(pf.name)+': '+members.length+' pers'+extra+' · '+fmt(totDays,1)+'d ✏️</span>'
     }).join('')
     const pReceipts = state.receipts.filter(function(r){ return r.period_id===p.id })
     const totMat = pReceipts.reduce(function(s,r){ return s+(parseFloat(r.total_amount)||0)-(parseFloat(r.alcohol_amount)||0) },0)
@@ -628,7 +687,10 @@ async function delPeriod(id){
 
 async function lockPeriod(id){
   if(!confirm('Lås perioden? Inga fler kvitton eller familjeändringar kan göras förrän den låses upp igen.')) return
+  const p = state.periods.find(function(x){ return x.id===id })
   const report = computeReport(id)
+  const previousTransactions = (p && p.frozen_report && p.frozen_report.transactions) || []
+  report.transactions = computeSwishTransactions(report.perFamily, previousTransactions)
   await sb.from('periods').update({status:'last', frozen_report:report}).eq('id',id)
   await init()
 }
@@ -639,7 +701,10 @@ async function unlockPeriod(id){
 }
 async function clearPeriod(id){
   if(!confirm('Markera hela perioden som clearad (alla har swishat)? Perioden flyttas till Historik.')) return
+  const p = state.periods.find(function(x){ return x.id===id })
   const report = computeReport(id)
+  const previousTransactions = (p && p.frozen_report && p.frozen_report.transactions) || []
+  report.transactions = computeSwishTransactions(report.perFamily, previousTransactions)
   await sb.from('periods').update({status:'clearad', cleared_at:new Date().toISOString(), frozen_report:report}).eq('id',id)
   if(state.selectedPeriodId===id) state.selectedPeriodId=null
   await init()
@@ -998,6 +1063,42 @@ function computeReport(periodId){
   return { dates:dates, totMat:totMat, totVin:totVin, sumMandagar:sumMandagar, sumVinMandagar:sumVinMandagar, matPerMandag:matPerMandag, vinPerVinMandag:vinPerVinMandag, members:allMembers, perFamily:perFamily }
 }
 
+// Swish-förslag med ankring: återanvänder så många par som möjligt från
+// föregående sparade lista (frozen_report.transactions), fyller på resten
+// med girig algoritm i fast familjeordning.
+function computeSwishTransactions(perFamily, previousTransactions){
+  const remaining = {}
+  perFamily.forEach(function(f){ remaining[f.name] = f.balance })
+  const transactions = []
+
+  ;(previousTransactions||[]).forEach(function(t){
+    if(!(t.from in remaining) || !(t.to in remaining)) return
+    const owe = -remaining[t.from]
+    const get = remaining[t.to]
+    if(owe>0.5 && get>0.5){
+      const amt = Math.min(owe, get)
+      if(amt>0.5){
+        transactions.push({from:t.from, to:t.to, amt:amt})
+        remaining[t.from] += amt
+        remaining[t.to] -= amt
+      }
+    }
+  })
+
+  const payers = perFamily.filter(function(f){ return remaining[f.name] < -0.5 }).map(function(f){ return {name:f.name, owe:-remaining[f.name]} })
+  const receivers = perFamily.filter(function(f){ return remaining[f.name] > 0.5 }).map(function(f){ return {name:f.name, get:remaining[f.name]} })
+  let pi=0, ri=0
+  while(pi<payers.length && ri<receivers.length){
+    const p=payers[pi], r=receivers[ri]
+    const amt = Math.min(p.owe, r.get)
+    if(amt>0.5) transactions.push({from:p.name, to:r.name, amt:amt})
+    p.owe -= amt; r.get -= amt
+    if(p.owe<0.5) pi++
+    if(r.get<0.5) ri++
+  }
+  return transactions
+}
+
 function renderReport(){
   const period = currentPeriod()
   if(!period) return '<p class="empty">Välj en period.</p>'
@@ -1013,13 +1114,17 @@ function renderReport(){
     ${rep.sumVinMandagar>0?`<div class="rep-row" style="color:rgba(255,255,255,.85);font-size:12px"><span>Vinmandagar</span><span>${fmt(rep.sumVinMandagar,1)} · ${fmt(rep.vinPerVinMandag,2)} kr/vinmandag</span></div>`:''}
   </div>`
 
-  const famRows = rep.perFamily.map(function(f){ return `<div class="card">
+  const famRows = rep.perFamily.map(function(f){
+    const members = rep.members.filter(function(m){ return m.familyId===f.id })
+    const compLine = familyCompositionLine(members, rep.dates)
+    return `<div class="card">
     <div class="card-hdr">
       <div>
         <div class="card-title">${esc(f.name)}</div>
         <div class="card-sub">Mandagar: ${fmt(f.mandagar,1)}${f.vinMandagar>0?' · Vinmandagar: '+fmt(f.vinMandagar,1):''}</div>
         <div class="card-sub">Ska betala: ${fmt(f.owed)} kr (mat ${fmt(f.owedMat)} · vin ${fmt(f.owedVin)})</div>
         <div class="card-sub">Har betalat: ${fmt(f.paid)} kr</div>
+        ${compLine}
       </div>
       <div style="text-align:right">
         <div style="font-weight:700;color:${f.balance>=0?'var(--green)':'var(--danger)'}">${f.balance>=0?'+':''}${fmt(f.balance)} kr</div>
@@ -1028,19 +1133,9 @@ function renderReport(){
     </div>
   </div>` }).join('')
 
-  // Swish-förslag: minsta antal transaktioner för att jämna ut alla saldon
-  const payers = rep.perFamily.filter(function(f){ return f.balance < -0.5 }).map(function(f){ return {name:f.name, owe:-f.balance} })
-  const receivers = rep.perFamily.filter(function(f){ return f.balance > 0.5 }).map(function(f){ return {name:f.name, get:f.balance} })
-  const transactions = []
-  let pi=0, ri=0
-  while(pi<payers.length && ri<receivers.length){
-    const p=payers[pi], r=receivers[ri]
-    const amt = Math.min(p.owe, r.get)
-    if(amt>0.5) transactions.push({from:p.name, to:r.name, amt:amt})
-    p.owe -= amt; r.get -= amt
-    if(p.owe<0.5) pi++
-    if(r.get<0.5) ri++
-  }
+  // Swish-förslag: ankrat mot föregående sparade lista för perioden (om någon finns)
+  const previousTransactions = (period.frozen_report && period.frozen_report.transactions) || []
+  const transactions = computeSwishTransactions(rep.perFamily, previousTransactions)
   const swishHtml = transactions.length ? `<div class="swish-box">
     <div class="swish-title">💸 Swish-förslag</div>
     ${transactions.map(function(t){ return `<div class="swish-row">
@@ -1303,6 +1398,16 @@ function openHistoryDetail(periodId){
       +'</div>'
   }).join('')
 
+  const swishRows = (rep.transactions||[]).length ? `<div class="swish-box" style="margin-top:8px">
+    <div class="swish-title">💸 Swish-förslag (sparat)</div>
+    ${rep.transactions.map(function(t){ return `<div class="swish-row">
+      <span class="swish-from">${esc(t.from)}</span>
+      <span style="color:var(--muted)">→</span>
+      <span class="swish-to">${esc(t.to)}</span>
+      <span class="swish-amt">${fmt(t.amt)} kr</span>
+    </div>` }).join('')}
+  </div>` : ''
+
   let actionBtns = ''
   let warningBanner = ''
   if(p.status==='clearad'){
@@ -1324,6 +1429,7 @@ function openHistoryDetail(periodId){
       <div class="rep-row"><span>🍷 Vin</span><span>${fmt(rep.totVin)} kr</span></div>
       <div class="rep-row" style="font-weight:700"><span>Totalt</span><span>${fmt((parseFloat(rep.totMat)||0)+(parseFloat(rep.totVin)||0))} kr</span></div>
     </div>
+    ${swishRows}
     ${!purged ? `<div style="margin-top:8px">${famRows || '<p class="empty">Ingen detaljerad data sparad.</p>'}</div>` : ''}
     ${warningBanner}
     <div class="btn-row" style="margin-top:12px">
