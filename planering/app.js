@@ -1,7 +1,7 @@
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
 
 let state = { templates:[], templateMembers:[], platser:[], vistelsePeriods:[], vistelseFamilies:[], vistelseMembers:[] }
-let activeTab = 'platser'
+let activeTab = 'kalender'
 let calendarPlatsId = null
 let calendarPeriodId = null
 let calendarChartMode = 'timeline'
@@ -144,7 +144,11 @@ function platsName(id){ return (state.platser.find(p=>p.id===id)||{}).name||'' }
 function isoWeekStart(dateStr){ const dow=dayOfWeekUTC(dateStr); const diff = dow===0 ? -6 : (1-dow); return isoAdd(dateStr, diff) }
 function getWeekDates(anchorDate){ const monday=isoWeekStart(anchorDate); const dates=[]; for(let i=0;i<7;i++) dates.push(isoAdd(monday,i)); return dates }
 function dayLabelUTC(dateStr){ const days=['sö','må','ti','on','to','fr','lö']; const d=new Date(toUTCms(dateStr)); return `${days[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth()+1}` }
-function closeModal(){ document.getElementById('modal').style.display='none'; document.getElementById('modal').innerHTML='' }
+function closeModal(){
+  document.getElementById('modal').style.display='none'
+  document.getElementById('modal').innerHTML=''
+  renderActive() // säkerställer att sidan bakom (t.ex. diagrammen) alltid speglar senast sparade data
+}
 function openModal(html){ document.getElementById('modal').innerHTML=html; document.getElementById('modal').style.display='block' }
 function datesBetween(start,end){ const out=[]; let cur=start, guard=0; while(cur<=end && guard<3660){ out.push(cur); cur=isoAdd(cur,1); guard++ } return out }
 function unionDates(existing, extra){ return Array.from(new Set([...(existing||[]),...extra])).sort() }
