@@ -549,11 +549,16 @@ async function delMember(memberId){
 let bulkDatesSet = new Set()
 
 function bulkSetDatesModal(vfId){
-  const vf = vfById(vfId)
-  const period = periodById(vf.period_id)
   const members = membersFor(vfId)
   // förslag på startläge: unionen av de dagar som redan är satta i familjen
   bulkDatesSet = new Set(members.flatMap(m=>m.day_states||[]))
+  renderBulkDatesModal(vfId)
+}
+
+function renderBulkDatesModal(vfId){
+  const vf = vfById(vfId)
+  const period = periodById(vf.period_id)
+  const members = membersFor(vfId)
 
   const rows = members.map(m=>`<label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:3px 0">
     <input type="checkbox" class="bulk-member" value="${m.id}" checked style="width:auto"/> ${esc(m.name)}
@@ -593,12 +598,12 @@ function toggleBulkDate(evt, date){
 function markAllBulkDates(vfId){
   const period = periodById(vfById(vfId).period_id)
   bulkDatesSet = new Set(datesBetween(period.starts_at, period.ends_at))
-  bulkSetDatesModal(vfId)
+  renderBulkDatesModal(vfId)
 }
 
 function clearBulkDates(vfId){
   bulkDatesSet = new Set()
-  bulkSetDatesModal(vfId)
+  renderBulkDatesModal(vfId)
 }
 
 async function saveBulkDates(vfId){
