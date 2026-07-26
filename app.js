@@ -1473,6 +1473,8 @@ function openHistoryDetail(periodId){
       <div class="rep-row"><span>🥗 Mat</span><span>${fmt(rep.totMat)} kr</span></div>
       <div class="rep-row"><span>🍷 Vin</span><span>${fmt(rep.totVin)} kr</span></div>
       <div class="rep-row" style="font-weight:700"><span>Totalt</span><span>${fmt((parseFloat(rep.totMat)||0)+(parseFloat(rep.totVin)||0))} kr</span></div>
+      ${rep.sumMandagar!=null?`<div class="rep-row" style="margin-top:6px;color:rgba(255,255,255,.85);font-size:12px"><span>Mandagar</span><span>${fmt(rep.sumMandagar,1)} · ${fmt(rep.matPerMandag,2)} kr/mandag</span></div>`:''}
+      ${rep.sumVinMandagar>0?`<div class="rep-row" style="color:rgba(255,255,255,.85);font-size:12px"><span>Vinmandagar</span><span>${fmt(rep.sumVinMandagar,1)} · ${fmt(rep.vinPerVinMandag,2)} kr/vinmandag</span></div>`:''}
     </div>
     ${swishRows}
     ${!purged ? `<div style="margin-top:8px">${famRows || '<p class="empty">Ingen detaljerad data sparad.</p>'}</div>` : ''}
