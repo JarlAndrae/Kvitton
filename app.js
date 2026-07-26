@@ -68,11 +68,23 @@ function statusLabel(status){
 }
 
 // ── GÄST/FAKTOR-SAMMANFATTNING (diskret info om familjesammansättning) ──────
-function isDeviatingMember(m){
+// Ger en lista med korta texter för en medlems faktorer, t.ex. ['inte vin'],
+// ['mat ×0,50'], ['inte mat','inte vin']. Tom lista = inget avvikande (faktor 1).
+function memberFactorNotes(m){
+  const notes = []
   const fm = parseFloat(m.factor_mat)
   const fv = parseFloat(m.factor_vin)
-  return (!isNaN(fm) && fm!==1) || (!isNaN(fv) && fv>0 && fv!==1)
+  if(!isNaN(fm)){
+    if(fm===0) notes.push('inte mat')
+    else if(fm!==1) notes.push('mat ×'+fmt(fm,2))
+  }
+  if(!isNaN(fv)){
+    if(fv===0) notes.push('inte vin')
+    else if(fv!==1) notes.push('vin ×'+fmt(fv,2))
+  }
+  return notes
 }
+function isDeviatingMember(m){ return memberFactorNotes(m).length>0 }
 function familyExtrasTag(members){
   const guests = members.filter(function(m){ return m.is_guest })
   const deviating = members.filter(isDeviatingMember)
@@ -90,12 +102,7 @@ function familyExtrasTitle(members, dates){
   }
   if(deviating.length){
     parts.push('Avvikande faktor: '+deviating.map(function(d){
-      const bits = []
-      const fm = parseFloat(d.factor_mat)
-      const fv = parseFloat(d.factor_vin)
-      if(!isNaN(fm) && fm!==1) bits.push('mat ×'+fmt(fm,2))
-      if(!isNaN(fv) && fv>0 && fv!==1) bits.push('vin ×'+fmt(fv,2))
-      return d.name+' ('+bits.join(', ')+')'
+      return d.name+' ('+memberFactorNotes(d).join(', ')+')'
     }).join('; '))
   }
   return parts.join(' · ')
@@ -110,11 +117,7 @@ function familyCompositionLine(members, dates){
   }
   if(deviating.length){
     bits.push('⚠️ '+deviating.map(function(d){
-      const parts=[]
-      const fm=parseFloat(d.factor_mat), fv=parseFloat(d.factor_vin)
-      if(!isNaN(fm)&&fm!==1) parts.push('mat ×'+fmt(fm,2))
-      if(!isNaN(fv)&&fv>0&&fv!==1) parts.push('vin ×'+fmt(fv,2))
-      return d.name+' '+parts.join(', ')
+      return d.name+' '+memberFactorNotes(d).join(', ')
     }).join(', '))
   }
   return '<div class="card-sub" style="font-size:11px;margin-top:2px">'+bits.join(' · ')+'</div>'
@@ -1398,9 +1401,12 @@ function openHistoryDetail(periodId){
       ? '🥗 '+fmt(f.paidMat)+' kr · 🍷 '+fmt(f.paidVin)+' kr'
       : fmt(f.paid)+' kr' // äldre frysta rapporter saknar uppdelning mat/vin
     const daysLine = fmt(f.mandagar,1)+' mandagar'+(f.vinMandagar>0?' · '+fmt(f.vinMandagar,1)+' vinmandagar':'')
+    const famMembers = (rep.members||[]).filter(function(m){ return m.familyId===f.id })
+    const compLine = familyCompositionLine(famMembers, rep.dates||[])
     return '<div style="padding:7px 0;border-bottom:1px solid var(--border,#eee)">'
       +'<div style="display:flex;justify-content:space-between;font-weight:600"><span>'+esc(f.name)+'</span><span>'+daysLine+'</span></div>'
       +'<div style="font-size:12px;color:var(--muted);margin-top:2px">Lade ut: '+paidLine+'</div>'
+      +compLine
       +'</div>'
   }).join('')
 
