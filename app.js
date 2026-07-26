@@ -746,6 +746,9 @@ async function purgePeriod(id){
 }
 
 // ── PERIODFAMILJER-MODAL ─────────────────────────────────────
+// pf-id:n som är expanderade i "Redigera period"-modalen – tomt = allt hopfällt.
+// Sparas inte i databasen, bara i minnet under sessionen.
+let expandedPeriodFamilies = new Set()
 function openPeriodFamiliesModal(periodId, focusPfId){
   const p = state.periods.find(function(x){ return x.id===periodId })
   if(!p) return
@@ -772,6 +775,19 @@ function openPeriodFamiliesModal(periodId, focusPfId){
 
   const famBlocks = pfs.map(function(pf){
     const members = periodMembersFor(pf.id)
+    const isExpanded = !!scoped || expandedPeriodFamilies.has(pf.id)
+
+    if(!isExpanded){
+      const totDays = members.reduce(function(s,m){ return s+memberDays(m,dates) },0)
+      const summaryExtra = familyExtrasTag(members)
+      return `<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="togglePeriodFamilyExpanded('${periodId}','${pf.id}')">
+        <div class="card-hdr">
+          <div class="card-title">▸ ${esc(pf.name)}${pf.is_adhoc?' <span class="tag">Adhoc</span>':''}</div>
+        </div>
+        <div class="card-sub" style="margin-top:2px">${members.length} person${members.length===1?'':'er'}${summaryExtra} · ${fmt(totDays,1)} dagar</div>
+      </div>`
+    }
+
     const rows = members.map(function(m){
       const d = memberDays(m, dates)
       const dayBadge = m.days_mode==='all' ? 'Alla dagar' : fmt(d,1)+' dagar'
@@ -786,7 +802,7 @@ function openPeriodFamiliesModal(periodId, focusPfId){
     }).join('')
     return `<div class="card" style="margin-bottom:10px">
       <div class="card-hdr">
-        <div class="card-title">${esc(pf.name)}${pf.is_adhoc?' <span class="tag">Adhoc</span>':''}</div>
+        <div class="card-title"${scoped?'':' style="cursor:pointer" onclick="togglePeriodFamilyExpanded(\''+periodId+'\',\''+pf.id+'\')"'}>${scoped?'':'▾ '}${esc(pf.name)}${pf.is_adhoc?' <span class="tag">Adhoc</span>':''}</div>
         <div class="btn-row">
           <button class="btn btn-g btn-sm" onclick="addPersonModal('${periodId}','${pf.id}')">+ Person</button>
           <button class="btn btn-g btn-sm" onclick="openFamilyDaysModal('${periodId}','${pf.id}')">🙋 Närvaro för alla</button>
@@ -799,21 +815,28 @@ function openPeriodFamiliesModal(periodId, focusPfId){
   }).join('')
 
   const addTplOpts = (!scoped && remainingTemplates.length) ? '<select id="pf-add-tpl" style="width:auto">'+remainingTemplates.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')+'</select><button class="btn btn-g btn-sm" onclick="addTemplateToPeriod(\''+periodId+'\')">+ Kopiera in mall</button>' : ''
+  const addFamilyControls = !scoped ? `<div class="btn-row" style="flex-wrap:wrap;margin-bottom:10px">
+      ${addTplOpts}
+      <button class="btn btn-g btn-sm" onclick="addAdhocFamilyModal('${periodId}')">+ Adhoc-familj</button>
+    </div>` : ''
 
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal" style="max-width:560px">
     <div class="modal-title">Redigera period</div>
     ${periodBasics}
     ${scoped ? '<div class="hint">Visar bara <strong>'+esc(scoped.name)+'</strong> – <a href="#" onclick="event.preventDefault();openPeriodFamiliesModal(\''+periodId+'\')">visa alla familjer</a></div>' : ''}
+    ${addFamilyControls}
     ${famBlocks || '<p class="empty">Inga familjer kopplade ännu.</p>'}
-    <div class="btn-row" style="flex-wrap:wrap;margin-top:10px">
-      ${addTplOpts}
-      ${!scoped ? '<button class="btn btn-g btn-sm" onclick="addAdhocFamilyModal(\''+periodId+'\')">+ Adhoc-familj</button>' : ''}
-    </div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
     </div>
   </div></div>`)
+}
+
+function togglePeriodFamilyExpanded(periodId, pfId){
+  if(expandedPeriodFamilies.has(pfId)) expandedPeriodFamilies.delete(pfId)
+  else expandedPeriodFamilies.add(pfId)
+  openPeriodFamiliesModal(periodId)
 }
 
 async function addTemplateToPeriod(periodId){
@@ -827,7 +850,7 @@ async function addTemplateToPeriod(periodId){
   if(members.length){
     await sb.from('period_members').insert(members.map(function(m,i){ return {period_family_id:pf.id, klan_id:currentKlanId, name:m.name, factor_mat:m.factor_mat, factor_vin:m.factor_vin, is_guest:false, days_mode:'all', day_states:[], sort_order:i} }))
   }
-  await init(); openPeriodFamiliesModal(periodId)
+  await init(); expandedPeriodFamilies.add(pf.id); openPeriodFamiliesModal(periodId)
 }
 
 function addAdhocFamilyModal(periodId){
@@ -844,9 +867,9 @@ function addAdhocFamilyModal(periodId){
 async function saveAdhocFamily(periodId){
   const name = document.getElementById('adhoc-name').value.trim()
   if(!name){ alert('Ange ett namn.'); return }
-  const res = await sb.from('period_families').insert({period_id:periodId, klan_id:currentKlanId, template_id:null, name:name, is_adhoc:true})
+  const res = await sb.from('period_families').insert({period_id:periodId, klan_id:currentKlanId, template_id:null, name:name, is_adhoc:true}).select().single()
   if(res.error){ alert('Kunde inte spara: '+res.error.message); return }
-  await init(); openPeriodFamiliesModal(periodId)
+  await init(); expandedPeriodFamilies.add(res.data.id); openPeriodFamiliesModal(periodId)
 }
 
 async function delPeriodFamily(periodId, pfId){
