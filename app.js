@@ -518,7 +518,7 @@ function renderPerioder(){
         <div class="btn-row" style="flex-direction:column;align-items:flex-end">
           <button class="btn btn-g btn-sm" onclick="selectPeriod('${p.id}')">Välj</button>
           <button class="btn btn-g btn-sm" onclick="openPeriodFamiliesModal('${p.id}')">✏️ Redigera period</button>
-          <button class="btn btn-w btn-sm" onclick="lockPeriod('${p.id}')">🔒 Lås</button>
+          <button class="btn btn-w btn-sm" onclick="lockPeriod('${p.id}')">📊 Räkna av</button>
           <button class="btn btn-d btn-sm" onclick="delPeriod('${p.id}')">Ta bort</button>
         </div>
       </div>
@@ -686,7 +686,7 @@ async function delPeriod(id){
 }
 
 async function lockPeriod(id){
-  if(!confirm('Lås perioden? Inga fler kvitton eller familjeändringar kan göras förrän den låses upp igen.')) return
+  if(!confirm('Räkna av perioden? Inga fler kvitton eller familjeändringar kan göras förrän du låser upp den igen.')) return
   const p = state.periods.find(function(x){ return x.id===id })
   const report = computeReport(id)
   const previousTransactions = (p && p.frozen_report && p.frozen_report.transactions) || []
@@ -1106,6 +1106,12 @@ function renderReport(){
   if(!state.receipts.filter(function(r){ return r.period_id===period.id }).length) return '<p class="empty">Inga kvitton i perioden ännu.</p>'
   if(!rep.members.length) return '<p class="empty">Lägg till familjer och medlemmar under fliken Perioder → Familjer.</p>'
 
+  const lockBtns = isOpenPeriod(period)
+    ? `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-w btn-sm" onclick="lockPeriod('${period.id}')">📊 Räkna av</button></div>`
+    : isLastPeriod(period)
+      ? `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-g btn-sm" onclick="unlockPeriod('${period.id}')">🔓 Lås upp</button></div>`
+      : ''
+
   const sumBar = `<div class="sum-bar">
     <div class="rep-row"><span>🥗 Mat</span><span>${fmt(rep.totMat)} kr</span></div>
     <div class="rep-row"><span>🍷 Vin</span><span>${fmt(rep.totVin)} kr</span></div>
@@ -1146,7 +1152,7 @@ function renderReport(){
     </div>` }).join('')}
   </div>` : ''
 
-  return `<div class="sh"><span class="sh-title">Avräkning – ${esc(period.name)}</span></div>${sumBar}${swishHtml}${famRows}`
+  return `<div class="sh"><span class="sh-title">Avräkning – ${esc(period.name)}</span></div>${lockBtns}${sumBar}${swishHtml}${famRows}`
 }
 
 // ============================================================
