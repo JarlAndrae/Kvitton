@@ -279,7 +279,7 @@ function renderKalender(){
   }
   const platsHeader = `<div class="sh"><span class="sh-title">Kalender</span></div>
     <div class="fg" style="max-width:260px"><select onchange="setCalendarPlats(this.value)">${platsOpts}</select></div>
-    <div class="hint">Vistelseplanering är helt separat från avräkning och mandagar i Hushållskostnader.</div>`
+    <div class="hint">Vistelseplanering är helt separat från avräkning och mandagar i Hushållskostnader. "Kopiera in familj" tar en ögonblicksbild av mallen – ändringar sker sedan bara här, inte i mallen.</div>`
 
   if(!periods.length){
     return `${platsHeader}
@@ -418,6 +418,7 @@ function copyInFamilyModal(platsId, periodId){
   openModal(`<div class="overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <div class="modal-title">Kopiera in familj – ${esc(periodById(periodId)?.name||'')}</div>
+    <div class="hint">Detta tar en ögonblicksbild av familjemallen just nu – personerna och deras dagar hör sedan bara till den här perioden. Ändringar du gör här (lägger till/tar bort personer, sätter dagar) påverkar inte mallen, och om mallen ändras i Hushållskostnader senare uppdateras inte redan inkopierade familjer automatiskt.</div>
     ${state.templates.length ? opts : '<p class="empty">Inga familjemallar finns ännu – skapa en i Hushållskostnader, eller lägg till en adhoc-familj här istället.</p>'}
     <div class="btn-row" style="margin-top:10px">
       <button class="btn btn-g" onclick="closeModal()">Stäng</button>
