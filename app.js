@@ -1428,11 +1428,16 @@ function openHistoryDetail(periodId){
     const paidLine = hasBreakdown
       ? '🥗 '+fmt(f.paidMat)+' kr · 🍷 '+fmt(f.paidVin)+' kr'
       : fmt(f.paid)+' kr' // äldre frysta rapporter saknar uppdelning mat/vin
+    const hasCostBreakdown = f.owedMat!=null && f.owedVin!=null
+    const costLine = hasCostBreakdown
+      ? '🥗 '+fmt(f.owedMat)+' kr · 🍷 '+fmt(f.owedVin)+' kr'
+      : (f.owed!=null ? fmt(f.owed)+' kr' : null) // äldre frysta rapporter saknar kostnad helt
     const daysLine = fmt(f.mandagar,1)+' mandagar'+(f.vinMandagar>0?' · '+fmt(f.vinMandagar,1)+' vinmandagar':'')
     const famMembers = (rep.members||[]).filter(function(m){ return m.familyId===f.id })
     const compLine = familyCompositionLine(famMembers, rep.dates||[])
     return '<div style="padding:7px 0;border-bottom:1px solid var(--border,#eee)">'
       +'<div style="display:flex;justify-content:space-between;font-weight:600"><span>'+esc(f.name)+'</span><span>'+daysLine+'</span></div>'
+      +(costLine ? '<div style="font-size:12px;color:var(--muted);margin-top:2px">Kostnad: '+costLine+'</div>' : '')
       +'<div style="font-size:12px;color:var(--muted);margin-top:2px">Lade ut: '+paidLine+'</div>'
       +compLine
       +'</div>'
