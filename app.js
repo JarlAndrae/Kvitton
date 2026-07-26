@@ -779,12 +779,13 @@ function openPeriodFamiliesModal(periodId, focusPfId){
 
     if(!isExpanded){
       const totDays = members.reduce(function(s,m){ return s+memberDays(m,dates) },0)
-      const summaryExtra = familyExtrasTag(members)
+      const compLine = familyCompositionLine(members, dates)
       return `<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="togglePeriodFamilyExpanded('${periodId}','${pf.id}')">
         <div class="card-hdr">
           <div class="card-title">▸ ${esc(pf.name)}${pf.is_adhoc?' <span class="tag">Adhoc</span>':''}</div>
         </div>
-        <div class="card-sub" style="margin-top:2px">${members.length} person${members.length===1?'':'er'}${summaryExtra} · ${fmt(totDays,1)} dagar</div>
+        <div class="card-sub" style="margin-top:2px">${members.length} person${members.length===1?'':'er'} · ${fmt(totDays,1)} dagar</div>
+        ${compLine}
       </div>`
     }
 
@@ -815,7 +816,11 @@ function openPeriodFamiliesModal(periodId, focusPfId){
   }).join('')
 
   const addTplOpts = (!scoped && remainingTemplates.length) ? '<select id="pf-add-tpl" style="width:auto">'+remainingTemplates.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')+'</select><button class="btn btn-g btn-sm" onclick="addTemplateToPeriod(\''+periodId+'\')">+ Kopiera in mall</button>' : ''
-  const addFamilyControls = !scoped ? `<div class="btn-row" style="flex-wrap:wrap;margin-bottom:10px">
+  const addFamilyHint = remainingTemplates.length
+    ? 'Lägg till en familj i perioden: välj en sparad mall och tryck "Kopiera in mall" – eller skapa en tillfällig familj bara för den här perioden med "Adhoc-familj".'
+    : 'Alla sparade mallar är redan inkopierade i perioden. Skapa en tillfällig familj bara för den här perioden med "Adhoc-familj".'
+  const addFamilyControls = !scoped ? `<div class="hint">${addFamilyHint}</div>
+    <div class="btn-row" style="flex-wrap:wrap;margin-bottom:10px">
       ${addTplOpts}
       <button class="btn btn-g btn-sm" onclick="addAdhocFamilyModal('${periodId}')">+ Adhoc-familj</button>
     </div>` : ''
