@@ -1,0 +1,109 @@
+name: Supabase-backup
+
+on:
+  schedule:
+    # Varje söndag kl 03:00 UTC (04:00/05:00 svensk tid beroende på sommartid)
+    - cron: '0 3 * * 0'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://ebyoovnwesrnlurkyxcd.supabase.co
+      SUPABASE_KEY: sb_publishable_AXMvYdHKhWamINP2CPzf4Q_YudNhxOX
+    steps:
+      - name: Checka ut repot
+        uses: actions/checkout@v4
+
+      - name: Hämta all data från Supabase och bygg backup.json
+        run: |
+          set -euo pipefail
+
+          TABLES="klaner family_templates template_members periods period_families period_members receipts platser vistelse_periods vistelse_families vistelse_members house_people house_entries house_projects"
+
+          mkdir -p /tmp/backup_parts
+          mkdir -p backups
+
+          for t in $TABLES; do
+            echo "Hämtar tabell: $t"
+            echo "[]" > "/tmp/backup_parts/$t.json"
+            offset=0
+            page=1000
+            while true; do
+              resp=$(curl -sS \
+                -H "apikey: $SUPABASE_KEY" \
+                -H "Authorization: Bearer $SUPABASE_KEY" \
+                -H "Range-Unit: items" \
+                -H "Range: ${offset}-$((offset + page - 1))" \
+                "$SUPABASE_URL/rest/v1/$t?select=*&order=id")
+
+              if ! echo "$resp" | jq -e 'type=="array"' > /dev/null 2>&1; then
+                echo "Fel vid hämtning av $t: $resp"
+                exit 1
+              fi
+
+              count=$(echo "$resp" | jq 'length')
+              jq -s '.[0] + .[1]' "/tmp/backup_parts/$t.json" <(echo "$resp") > "/tmp/backup_parts/$t.tmp.json"
+              mv "/tmp/backup_parts/$t.tmp.json" "/tmp/backup_parts/$t.json"
+
+              if [ "$count" -lt "$page" ]; then
+                break
+              fi
+              offset=$((offset + page))
+            done
+          done
+
+          jq -n \
+            --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --slurpfile klaner /tmp/backup_parts/klaner.json \
+            --slurpfile family_templates /tmp/backup_parts/family_templates.json \
+            --slurpfile template_members /tmp/backup_parts/template_members.json \
+            --slurpfile periods /tmp/backup_parts/periods.json \
+            --slurpfile period_families /tmp/backup_parts/period_families.json \
+            --slurpfile period_members /tmp/backup_parts/period_members.json \
+            --slurpfile receipts /tmp/backup_parts/receipts.json \
+            --slurpfile platser /tmp/backup_parts/platser.json \
+            --slurpfile vistelse_periods /tmp/backup_parts/vistelse_periods.json \
+            --slurpfile vistelse_families /tmp/backup_parts/vistelse_families.json \
+            --slurpfile vistelse_members /tmp/backup_parts/vistelse_members.json \
+            --slurpfile house_people /tmp/backup_parts/house_people.json \
+            --slurpfile house_entries /tmp/backup_parts/house_entries.json \
+            --slurpfile house_projects /tmp/backup_parts/house_projects.json \
+            '{
+              generated_at: $generated_at,
+              klaner: $klaner[0],
+              family_templates: $family_templates[0],
+              template_members: $template_members[0],
+              periods: $periods[0],
+              period_families: $period_families[0],
+              period_members: $period_members[0],
+              receipts: $receipts[0],
+              platser: $platser[0],
+              vistelse_periods: $vistelse_periods[0],
+              vistelse_families: $vistelse_families[0],
+              vistelse_members: $vistelse_members[0],
+              house_people: $house_people[0],
+              house_entries: $house_entries[0],
+              house_projects: $house_projects[0]
+            }' > backups/backup.json
+
+          echo "Rader per tabell:"
+          jq 'to_entries | map(select(.value|type=="array")) | map("\(.key): \(.value|length)") | .[]' backups/backup.json
+
+      - name: Committa om något ändrats
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- backups/backup.json; then
+            echo "Ingen förändring sedan förra backupen – committar inget."
+          else
+            git add backups/backup.json
+            git commit -m "Automatisk backup $(date -u +%Y-%m-%d)"
+            git push
+          fi
