@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-23T03:49:14Z",
+  "generated_at": "2026-08-30T08:55:48Z",
   "klaner": [
     {
       "id": "ab4bf3ee-d622-47f3-892e-90370671f585",
@@ -1146,14 +1146,14 @@
       "purged_tot_vin": null
     },
     {
-      "id": "9b276d52-7eb3-4195-9081-bd458975de6e",
-      "name": "Kroatien",
-      "starts_at": "2026-07-03",
-      "ends_at": "2026-07-11",
-      "created_at": "2026-07-23T09:00:15.650429+00:00",
+      "id": "8076239c-99a3-4b56-9609-65badce1974b",
+      "name": "Kräftskiva",
+      "starts_at": "2026-08-29",
+      "ends_at": "2026-08-29",
+      "created_at": "2026-08-28T14:29:37.073529+00:00",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
       "status": "oppen",
-      "plats_id": "7db10001-8d7e-4760-bd3d-e7ca254d1948",
+      "plats_id": null,
       "frozen_report": null,
       "cleared_at": null,
       "compressed_at": null,
@@ -1528,7 +1528,7 @@
       "ends_at": "2026-08-01",
       "created_at": "2026-07-24T18:21:28.40532+00:00",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "status": "last",
+      "status": "clearad",
       "plats_id": "cc7b7a81-f4d6-4685-95fa-c7901f4812d6",
       "frozen_report": {
         "dates": [
@@ -1898,7 +1898,7 @@
         "sumVinMandagar": 45,
         "vinPerVinMandag": 36.75555555555555
       },
-      "cleared_at": null,
+      "cleared_at": "2026-08-28T14:32:08.875+00:00",
       "compressed_at": null,
       "purged_at": null,
       "purged_tot_mat": null,
@@ -2228,6 +2228,17 @@
   ],
   "period_families": [
     {
+      "id": "05a66957-332b-4151-a141-baf440b630eb",
+      "period_id": "8076239c-99a3-4b56-9609-65badce1974b",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "template_id": "d54bc222-bb05-45ef-b3fe-94957e37baa5",
+      "name": "Ellen, Martin och barn",
+      "is_adhoc": false,
+      "sort_order": 0,
+      "created_at": "2026-08-28T14:29:37.254727+00:00",
+      "legacy_family_id": null
+    },
+    {
       "id": "09ce3e06-f89a-429f-8b59-8a6ff84aacb6",
       "period_id": "cd2a1c79-e73f-4c67-960c-39ca07ab731f",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2261,6 +2272,17 @@
       "legacy_family_id": null
     },
     {
+      "id": "137e48ac-9e41-4c5e-a9f6-9e73270d52ae",
+      "period_id": "8076239c-99a3-4b56-9609-65badce1974b",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "template_id": "8868b793-cbaf-4392-a052-2a35378e697e",
+      "name": "Familjen Entin",
+      "is_adhoc": false,
+      "sort_order": 0,
+      "created_at": "2026-08-28T14:29:37.500682+00:00",
+      "legacy_family_id": null
+    },
+    {
       "id": "144e0fc7-35a2-4b4c-a0c3-fccfa47c6f5d",
       "period_id": "fc46a3b2-cbc4-42b3-8a56-57989cb387f0",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2281,17 +2303,6 @@
       "sort_order": 0,
       "created_at": "2026-07-23T06:16:04.349818+00:00",
       "legacy_family_id": "4511010b-af38-4b74-82bb-445c428f7b95"
-    },
-    {
-      "id": "330b9d7c-25cd-4df8-936f-1e7002f0b136",
-      "period_id": "9b276d52-7eb3-4195-9081-bd458975de6e",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "template_id": "8868b793-cbaf-4392-a052-2a35378e697e",
-      "name": "Familjen Entin",
-      "is_adhoc": false,
-      "sort_order": 0,
-      "created_at": "2026-07-23T09:00:15.94249+00:00",
-      "legacy_family_id": null
     },
     {
       "id": "34a22a21-832b-41e7-b723-69dd0fc23526",
@@ -2316,6 +2327,17 @@
       "legacy_family_id": "3e56f4a7-5a54-49a6-bcc1-b4523fbfc578"
     },
     {
+      "id": "3d4916d4-1cc5-4107-bfa9-6fc6a9b2f509",
+      "period_id": "8076239c-99a3-4b56-9609-65badce1974b",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "template_id": "42957674-8640-4a88-8327-e91e975fb0d2",
+      "name": "Lisa , Simon & Samuel",
+      "is_adhoc": false,
+      "sort_order": 0,
+      "created_at": "2026-08-28T14:29:38.102169+00:00",
+      "legacy_family_id": null
+    },
+    {
       "id": "4b2446ce-3173-45c3-92b0-f349eca0553a",
       "period_id": "cd2a1c79-e73f-4c67-960c-39ca07ab731f",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2324,6 +2346,17 @@
       "is_adhoc": false,
       "sort_order": 0,
       "created_at": "2026-07-25T09:26:38.321203+00:00",
+      "legacy_family_id": null
+    },
+    {
+      "id": "4ee610bd-2db1-418c-9eb8-753c7ebdea7a",
+      "period_id": "8076239c-99a3-4b56-9609-65badce1974b",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "template_id": "b13fdbd1-21ca-4031-82a7-c5e225011aba",
+      "name": "Jalle & Susann",
+      "is_adhoc": false,
+      "sort_order": 0,
+      "created_at": "2026-08-28T14:29:37.709075+00:00",
       "legacy_family_id": null
     },
     {
@@ -2338,6 +2371,17 @@
       "legacy_family_id": null
     },
     {
+      "id": "565a2dc1-7fda-4644-8499-3b49e88e716e",
+      "period_id": "8076239c-99a3-4b56-9609-65badce1974b",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "template_id": "df8c5bd0-ad77-410f-a5bc-55f469b65bfd",
+      "name": "Monica",
+      "is_adhoc": false,
+      "sort_order": 0,
+      "created_at": "2026-08-28T14:29:38.33062+00:00",
+      "legacy_family_id": null
+    },
+    {
       "id": "5a849def-dc08-4d8f-a3ae-68f555d32fd0",
       "period_id": "1034a714-b7f8-451c-a05e-cb7a0897cf60",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2349,14 +2393,14 @@
       "legacy_family_id": "e1b7a6ea-250a-4834-ba3d-c96669146371"
     },
     {
-      "id": "70dafb8f-9233-416f-afb0-2f49fab84cdb",
-      "period_id": "9b276d52-7eb3-4195-9081-bd458975de6e",
+      "id": "667d26d9-d33d-4283-a2ee-395c71fa7b2c",
+      "period_id": "8076239c-99a3-4b56-9609-65badce1974b",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
       "template_id": "6f32d832-9a85-49f9-8ff8-00b5a031c402",
       "name": "Jullan och Stefan",
       "is_adhoc": false,
       "sort_order": 0,
-      "created_at": "2026-07-23T09:00:16.278626+00:00",
+      "created_at": "2026-08-28T14:29:37.926663+00:00",
       "legacy_family_id": null
     },
     {
@@ -2437,17 +2481,6 @@
       "legacy_family_id": "2743179f-16d2-4f86-8895-1c9573247cd2"
     },
     {
-      "id": "ae4c8883-e706-45e0-9389-c720a171268c",
-      "period_id": "9b276d52-7eb3-4195-9081-bd458975de6e",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "template_id": "df8c5bd0-ad77-410f-a5bc-55f469b65bfd",
-      "name": "Monica",
-      "is_adhoc": false,
-      "sort_order": 0,
-      "created_at": "2026-07-23T09:00:16.67756+00:00",
-      "legacy_family_id": null
-    },
-    {
       "id": "b00c4fe0-8c12-4c9b-b3ed-5fd624efb546",
       "period_id": "fc46a3b2-cbc4-42b3-8a56-57989cb387f0",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2478,17 +2511,6 @@
       "is_adhoc": false,
       "sort_order": 0,
       "created_at": "2026-07-26T09:33:26.87449+00:00",
-      "legacy_family_id": null
-    },
-    {
-      "id": "cdf2c39c-9621-406d-afa7-fcc1684bc4a1",
-      "period_id": "9b276d52-7eb3-4195-9081-bd458975de6e",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "template_id": "42957674-8640-4a88-8327-e91e975fb0d2",
-      "name": "Lisa , Simon & Samuel",
-      "is_adhoc": false,
-      "sort_order": 0,
-      "created_at": "2026-07-23T09:00:16.492643+00:00",
       "legacy_family_id": null
     },
     {
@@ -2594,6 +2616,18 @@
       "factor_vin": 0
     },
     {
+      "id": "04bbd864-40a9-4085-8a14-3459758dd83f",
+      "period_family_id": "137e48ac-9e41-4c5e-a9f6-9e73270d52ae",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Irma",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 3,
+      "factor_vin": 0
+    },
+    {
       "id": "0853b495-a613-4a29-a6ae-d29c9ae951d1",
       "period_family_id": "9b77495b-c018-4009-9b57-eb660bd0889c",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2627,6 +2661,18 @@
       ],
       "sort_order": 3,
       "factor_vin": 0
+    },
+    {
+      "id": "09f0b395-4abf-4c03-a70e-d1c676ba4864",
+      "period_family_id": "667d26d9-d33d-4283-a2ee-395c71fa7b2c",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Jullan",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 0,
+      "factor_vin": 1
     },
     {
       "id": "0c7e01f2-9942-4412-9301-d06b3164b264",
@@ -2728,23 +2774,23 @@
       "factor_vin": 1
     },
     {
+      "id": "2069ac00-e9b5-46ee-9356-0b030ef26ab7",
+      "period_family_id": "4ee610bd-2db1-418c-9eb8-753c7ebdea7a",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Jalle",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 0,
+      "factor_vin": 1
+    },
+    {
       "id": "217ed7a3-5ed7-408f-b84c-3df1d96b7787",
       "period_family_id": "09ce3e06-f89a-429f-8b59-8a6ff84aacb6",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
       "name": "Signe",
       "factor_mat": 0.25,
-      "is_guest": false,
-      "days_mode": "all",
-      "day_states": [],
-      "sort_order": 3,
-      "factor_vin": 0
-    },
-    {
-      "id": "21a14691-e68c-422b-b454-5a90084e8a14",
-      "period_family_id": "330b9d7c-25cd-4df8-936f-1e7002f0b136",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Irma",
-      "factor_mat": 1,
       "is_guest": false,
       "days_mode": "all",
       "day_states": [],
@@ -2803,6 +2849,18 @@
         0.5
       ],
       "sort_order": 3,
+      "factor_vin": 0
+    },
+    {
+      "id": "3193fa9f-c4d4-4944-9100-90520badb4ed",
+      "period_family_id": "137e48ac-9e41-4c5e-a9f6-9e73270d52ae",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Viktor",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 2,
       "factor_vin": 0
     },
     {
@@ -2867,30 +2925,6 @@
       "factor_vin": 0
     },
     {
-      "id": "3d6b5ea7-7a0b-4e1c-96e9-f9a2e49025b4",
-      "period_family_id": "cdf2c39c-9621-406d-afa7-fcc1684bc4a1",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Lisa",
-      "factor_mat": 1,
-      "is_guest": false,
-      "days_mode": "all",
-      "day_states": [],
-      "sort_order": 0,
-      "factor_vin": 1
-    },
-    {
-      "id": "3e3f5d4d-4aca-4b97-b502-c0ce050f0f56",
-      "period_family_id": "70dafb8f-9233-416f-afb0-2f49fab84cdb",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Jullan",
-      "factor_mat": 1,
-      "is_guest": false,
-      "days_mode": "all",
-      "day_states": [],
-      "sort_order": 0,
-      "factor_vin": 1
-    },
-    {
       "id": "3ea33346-e886-4e2b-b7c0-2096d21d5571",
       "period_family_id": "09ce3e06-f89a-429f-8b59-8a6ff84aacb6",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2915,6 +2949,42 @@
       "factor_vin": 1
     },
     {
+      "id": "43452528-a8ab-4ad0-8362-18893232ec86",
+      "period_family_id": "4ee610bd-2db1-418c-9eb8-753c7ebdea7a",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Susann",
+      "factor_mat": 0.75,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 1,
+      "factor_vin": 1
+    },
+    {
+      "id": "462ec606-e8c4-4de0-9725-9fc6db1292b1",
+      "period_family_id": "3d4916d4-1cc5-4107-bfa9-6fc6a9b2f509",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Samuel",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 2,
+      "factor_vin": 0
+    },
+    {
+      "id": "469e2c8e-f68b-4985-89b4-7399e7efe6de",
+      "period_family_id": "3d4916d4-1cc5-4107-bfa9-6fc6a9b2f509",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Lisa",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 0,
+      "factor_vin": 1
+    },
+    {
       "id": "48d9a2d5-d1a8-42fc-a34d-5f3129030603",
       "period_family_id": "8746f694-574e-4b19-ab58-933fc0e07f16",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -2936,15 +3006,15 @@
       "factor_vin": 1
     },
     {
-      "id": "4b67c2b2-ff6f-4cd6-9e3b-998dd82b4633",
-      "period_family_id": "330b9d7c-25cd-4df8-936f-1e7002f0b136",
+      "id": "49f6f4d5-f237-433b-949a-b0d0cfcb2ba7",
+      "period_family_id": "137e48ac-9e41-4c5e-a9f6-9e73270d52ae",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Max",
+      "name": "Nina",
       "factor_mat": 1,
       "is_guest": false,
       "days_mode": "all",
       "day_states": [],
-      "sort_order": 0,
+      "sort_order": 1,
       "factor_vin": 1
     },
     {
@@ -3067,16 +3137,16 @@
       "factor_vin": 0
     },
     {
-      "id": "6ee94958-45a4-42b8-97f9-29e61d609c7f",
-      "period_family_id": "cdf2c39c-9621-406d-afa7-fcc1684bc4a1",
+      "id": "6f9c134b-6e82-423f-9bed-7febe83f9b34",
+      "period_family_id": "05a66957-332b-4151-a141-baf440b630eb",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Samuel",
+      "name": "Ellen",
       "factor_mat": 1,
       "is_guest": false,
       "days_mode": "all",
       "day_states": [],
-      "sort_order": 2,
-      "factor_vin": 0
+      "sort_order": 0,
+      "factor_vin": 1
     },
     {
       "id": "72dee9b1-1d22-4bb7-a06a-ad53464c7af5",
@@ -3169,18 +3239,6 @@
       "factor_vin": 0
     },
     {
-      "id": "848f92a0-c8d0-4507-a2df-547c29c4fa14",
-      "period_family_id": "330b9d7c-25cd-4df8-936f-1e7002f0b136",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Nina",
-      "factor_mat": 1,
-      "is_guest": false,
-      "days_mode": "all",
-      "day_states": [],
-      "sort_order": 1,
-      "factor_vin": 1
-    },
-    {
       "id": "86bce13b-4c08-47ae-b12d-a848f9132a11",
       "period_family_id": "cf5a35d0-5eed-453e-a7cf-44185a6d958d",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -3200,6 +3258,18 @@
       ],
       "sort_order": 0,
       "factor_vin": 0
+    },
+    {
+      "id": "893efe37-5504-4ee3-87e9-70eb27f683a9",
+      "period_family_id": "3d4916d4-1cc5-4107-bfa9-6fc6a9b2f509",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Simon",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 1,
+      "factor_vin": 1
     },
     {
       "id": "943ca6b2-53a6-4bb9-a048-e9ab04108b40",
@@ -3289,15 +3359,15 @@
       "factor_vin": 0
     },
     {
-      "id": "a4774621-9502-40aa-9b4e-156817009582",
-      "period_family_id": "330b9d7c-25cd-4df8-936f-1e7002f0b136",
+      "id": "a00e1d12-97da-4159-8cc2-8dc055981d40",
+      "period_family_id": "05a66957-332b-4151-a141-baf440b630eb",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Viktor",
-      "factor_mat": 1,
+      "name": "Signe",
+      "factor_mat": 0.25,
       "is_guest": false,
       "days_mode": "all",
       "day_states": [],
-      "sort_order": 2,
+      "sort_order": 3,
       "factor_vin": 0
     },
     {
@@ -3385,6 +3455,18 @@
       "factor_vin": 1
     },
     {
+      "id": "b436d4ed-5fc5-4f25-8520-beec876d3ed7",
+      "period_family_id": "565a2dc1-7fda-4644-8499-3b49e88e716e",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Monica",
+      "factor_mat": 0.75,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 0,
+      "factor_vin": 1
+    },
+    {
       "id": "b74d34cb-79e1-4fa8-b55b-f0a17a3d769c",
       "period_family_id": "09ce3e06-f89a-429f-8b59-8a6ff84aacb6",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -3440,6 +3522,18 @@
       "day_states": [],
       "sort_order": 2,
       "factor_vin": 0
+    },
+    {
+      "id": "c03eb541-a24a-4b09-81c5-71e73229864a",
+      "period_family_id": "667d26d9-d33d-4283-a2ee-395c71fa7b2c",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Stefan",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 1,
+      "factor_vin": 1
     },
     {
       "id": "c1835065-e07e-48e3-9187-e4ad5e45d02c",
@@ -3623,18 +3717,6 @@
       "factor_vin": 1
     },
     {
-      "id": "efa94f5b-1faf-4d3c-aa23-58253b754489",
-      "period_family_id": "cdf2c39c-9621-406d-afa7-fcc1684bc4a1",
-      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Simon",
-      "factor_mat": 1,
-      "is_guest": false,
-      "days_mode": "all",
-      "day_states": [],
-      "sort_order": 1,
-      "factor_vin": 1
-    },
-    {
       "id": "f2031d2f-1944-41af-81d2-d0d94b6182e2",
       "period_family_id": "c728c6d1-3e20-4940-9eeb-50dc9e82f0c4",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
@@ -3645,6 +3727,18 @@
       "day_states": [],
       "sort_order": 1,
       "factor_vin": 1
+    },
+    {
+      "id": "f4dc1bca-ad8d-445f-bb13-f323d7910dd3",
+      "period_family_id": "137e48ac-9e41-4c5e-a9f6-9e73270d52ae",
+      "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
+      "name": "Max",
+      "factor_mat": 1,
+      "is_guest": false,
+      "days_mode": "all",
+      "day_states": [],
+      "sort_order": 0,
+      "factor_vin": 0
     },
     {
       "id": "f7b0e1be-d359-4341-af9f-5055d35c634d",
@@ -3671,16 +3765,16 @@
       "factor_vin": 1
     },
     {
-      "id": "fce9d5cd-0780-429c-9c81-7b1af8a2e8c2",
-      "period_family_id": "ae4c8883-e706-45e0-9389-c720a171268c",
+      "id": "fd1b0de1-5c7d-4d21-88ef-9358ed678233",
+      "period_family_id": "05a66957-332b-4151-a141-baf440b630eb",
       "klan_id": "f1e253b6-534b-4078-b34e-04cdf9ad1cba",
-      "name": "Monica",
-      "factor_mat": 0.75,
+      "name": "Astrid",
+      "factor_mat": 0.25,
       "is_guest": false,
       "days_mode": "all",
       "day_states": [],
-      "sort_order": 0,
-      "factor_vin": 1
+      "sort_order": 2,
+      "factor_vin": 0
     },
     {
       "id": "fef97f7d-dff9-42c2-9d35-eacf760e428e",
